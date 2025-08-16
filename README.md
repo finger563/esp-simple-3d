@@ -1,7 +1,7 @@
 # ESP Simple 3D
 
 This is a project which uses a port of the textured 3d rasterization engine from
-[finger563/cs283-project](https://github.com/finger563/cs283-project) that I
+[finger563/cs283-project](https://github.com/finger563/cs283project) that I
 wrote a long time ago while in undergrad / early grad school. 
 
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
