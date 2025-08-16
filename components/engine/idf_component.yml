@@ -1,0 +1,16 @@
+## IDF Component Manager Manifest File
+license: "MIT"
+description: "Simple 3D Engine"
+url: "https://github.com/finger563/esp-simple-3d/tree/main/components/engine"
+repository: "git://github.com/finger563/esp-simple-3d/espp.git"
+maintainers:
+  - William Emfinger <waemfinger@gmail.com>
+tags:
+  - cpp
+  - graphics
+  - rendering
+  - engine
+dependencies:
+  idf:
+    version: '>=5.0'
+  espp/math: '>=1.0'
