@@ -12,8 +12,8 @@ Object::Object() {
 }
 
 // Alternate texture, veloctity, heading, position
-Object::Object(const unsigned short *texture, const int texWid, const int texHgt, Vector3D vel,
-               Point3D pos, double _rx, double _ry, double _rz) {
+Object::Object(const unsigned short *texture, const int texWid, const int texHgt,
+               const Vector3D &vel, Point3D pos, double _rx, double _ry, double _rz) {
   velocity = vel;
   position = pos;
   tex = texture;
@@ -25,8 +25,8 @@ Object::Object(const unsigned short *texture, const int texWid, const int texHgt
 }
 
 // Alternate Constructor
-Object::Object(Poly poly, const unsigned short *texture, const int texWid, const int texHgt,
-               Vector3D vel, Point3D pos, double _rx, double _ry, double _rz) {
+Object::Object(Poly &poly, const unsigned short *texture, const int texWid, const int texHgt,
+               const Vector3D &vel, Point3D pos, double _rx, double _ry, double _rz) {
   velocity = vel;
   position = pos;
   tex = texture;
@@ -48,37 +48,13 @@ Object::Object(Poly poly, const unsigned short *texture, const int texWid, const
 // Updates Temp list with any changes to the master list
 bool Object::updateList() {
   temp.clear();
-
-  if (!master.empty()) {
-    // makes copy from master to temp
-    for (const auto &poly : master) {
-      temp.push_back(poly);
-    }
-
-    if (!temp.empty())
-      return true;
-    else
-      return false;
-  }
-
+  std::copy(master.begin(), master.end(), std::back_inserter(temp));
   return true;
 }
 
-bool Object::updateList(std::vector<Poly> poly) {
+bool Object::updateList(const std::vector<Poly> &poly) {
   clearTemp();
-
-  if (!poly.empty()) {
-    // makes copy from master to temp
-    for (const auto &it : poly) {
-      temp.push_back(it);
-    }
-
-    if (!temp.empty())
-      return true;
-    else
-      return false;
-  }
-
+  std::copy(poly.begin(), poly.end(), std::back_inserter(temp));
   return true;
 }
 
@@ -114,7 +90,7 @@ void Object::RotateToHeading() {
   Rotate(m);
 }
 
-void Object::RotateToHeading(Vector3D changeUp) {
+void Object::RotateToHeading(const Vector3D &changeUp) {
   double r = cos(phi);
   double x = r * sin(theta), y = sin(phi), z = r * cos(theta);
   Vector3D forward = normalize(Vector3D(x, y, z));
@@ -171,7 +147,7 @@ void Object::RotateTempToHeading() {
   RotateTemp(m);
 }
 
-void Object::add(Poly poly) {
+void Object::add(const Poly &poly) {
   master.push_back(poly);
   updateList();
 }
@@ -384,7 +360,7 @@ void Object::GenerateWall(size_t type, double length, double depth) {
   updateList();
 }
 
-void Object::GenerateShot(Vector3D pos, double theta_, double phi_) {
+void Object::GenerateShot(const Vector3D &pos, double theta_, double phi_) {
   master.clear();
 
   master.push_back(Poly(Vertex(0, 0, 4, 1), Vertex(0, 2, -2, 1), Vertex(0, -2, -2, 1), Vertex(), 3,
@@ -409,8 +385,8 @@ void Object::GenerateShot(Vector3D pos, double theta_, double phi_) {
   RotateToHeading();
 }
 
-void Object::GeneratePlayer(Vector3D pos, double theta_, double phi_, const unsigned short *texture,
-                            const int texWid, const int texHgt) {
+void Object::GeneratePlayer(const Vector3D &pos, double theta_, double phi_,
+                            const unsigned short *texture, const int texWid, const int texHgt) {
   tex = texture;
   texWidth = texWid;
   texHeight = texHgt;
@@ -494,7 +470,7 @@ std::vector<Poly> Object::GetTemp() const { return temp; }
 ////////////////////////////////////////
 /////////////////Projectile functons////
 ///////////////////////////////////////
-void Object::projectileInit(Vector3D head, Vector3D pos) {
+void Object::projectileInit(const Vector3D &head, const Vector3D &pos) {
   // may have to create overload this to take a vector based
   // on where the mouse clicks
   heading = head;

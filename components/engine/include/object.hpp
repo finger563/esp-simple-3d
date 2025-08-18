@@ -14,12 +14,12 @@ public:
 
   // Alternate Constructor
   Object(const unsigned short *texture, const int texWid, const int texHgt,
-         Vector3D vel = Vector3D(0, 0, 0), Point3D pos = Point3D(0, 0, 0), double _rx = 0,
+         const Vector3D &vel = Vector3D(0, 0, 0), Point3D pos = Point3D(0, 0, 0), double _rx = 0,
          double _ry = 0, double _rz = 0);
 
   // Alternate Constructor
-  Object(Poly poly, const unsigned short *texture, const int texWid, const int texHgt,
-         Vector3D vel = Vector3D(0, 0, 0), Point3D pos = Point3D(0, 0, 0), double _rx = 0,
+  Object(Poly &poly, const unsigned short *texture, const int texWid, const int texHgt,
+         const Vector3D &vel = Vector3D(0, 0, 0), Point3D pos = Point3D(0, 0, 0), double _rx = 0,
          double _ry = 0, double _rz = 0);
 
   // Destructor
@@ -29,10 +29,10 @@ public:
   bool updateList();
 
   // Updates Temp list to whatever list is passed (i.e. Render list)
-  bool updateList(std::vector<Poly> poly);
+  bool updateList(const std::vector<Poly> &poly);
 
   // add polygon to lists
-  void add(Poly poly);
+  void add(const Poly &poly);
 
   // Generates cube with with sidelength = size*2
   void GenerateCube(double size = 5);
@@ -53,9 +53,9 @@ public:
   ///////////// 3 = right: to the right of player init
   void GenerateWall(size_t type, double length = 50, double depth = -10);
 
-  void GenerateShot(Vector3D pos, double theta_, double phi_);
+  void GenerateShot(const Vector3D &pos, double theta_, double phi_);
 
-  void GeneratePlayer(Vector3D pos, double theta_, double phi_,
+  void GeneratePlayer(const Vector3D &pos, double theta_, double phi_,
                       const unsigned short *texture = nullptr, const int texWid = 0,
                       const int texHgt = 0);
 
@@ -78,7 +78,7 @@ public:
 
   // Master list operations
   void RotateToHeading();
-  void RotateToHeading(Vector3D changeUp);
+  void RotateToHeading(const Vector3D &changeUp);
   void Rotate(Matrix &m);
   void Translate(Vector3D &v);
 
@@ -95,7 +95,7 @@ public:
   std::vector<Poly> GetRenderList() const;
   std::vector<Poly> GetTemp() const;
 
-  void projectileInit(Vector3D head, Vector3D pos = Vector3D(0, 0, 0));
+  void projectileInit(const Vector3D &head, const Vector3D &pos = Vector3D(0, 0, 0));
 
   bool CollidesWith(const Object &b);
 
