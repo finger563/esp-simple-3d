@@ -328,11 +328,6 @@ extern "C" void app_main(void) {
                 decoder.get_height());
   }
 
-  // TODO: replace this with load of jpeg from flash
-  defaulttexture = nullptr;
-  defaulttexture_width = 0;
-  defaulttexture_height = 0;
-
   // initialize the hardware abstraction layer
   auto &hw = hal::get();
   if (!hw.initialize_lcd()) {
