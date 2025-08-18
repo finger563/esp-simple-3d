@@ -107,7 +107,7 @@ void World::boxedIn() {
       Object(box_tex, box_tex_width, box_tex_height, Vector3D(), Point3D(-10, -5, 15));
   testobj.GenerateCube(15);
   testobj2.GenerateCube();
-  testobj2.SetRenderType(COLORED);
+  // testobj2.SetRenderType(COLORED);
 
   Object wall1 = Object(stone_tex, stone_tex_width, stone_tex_height);
   Object wall2 = Object(stone_tex, stone_tex_width, stone_tex_height);

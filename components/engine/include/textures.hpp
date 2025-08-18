@@ -26,13 +26,3 @@ extern size_t wood_tex_height;
 extern uint16_t *ceiling_tex;
 extern size_t ceiling_tex_width;
 extern size_t ceiling_tex_height;
-
-// #include "..\Sprites\box.h"
-// #include "..\Sprites\checkerboard.h"
-// #include "..\Sprites\defaulttexture.h"
-// #include "..\Sprites\floor.h"
-// #include "..\Sprites\floorsmall.h"
-// #include "..\Sprites\floorlarge.h"
-// #include "..\Sprites\ceiling.h"
-// #include "..\Sprites\wood.h"
-// #include "..\Sprites\stone.h"

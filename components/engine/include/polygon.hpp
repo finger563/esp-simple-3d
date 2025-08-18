@@ -1,10 +1,12 @@
 #pragma once
 
+#include <cstdint>
+
 #include "textures.hpp"
 #include "vertex.hpp"
 
-extern double z_buffer[SIZE_X * SIZE_Y];
-extern short display_buffer[SIZE_X * SIZE_Y];
+extern float *z_buffer;
+extern uint16_t *display_buffer;
 
 #define POLY_MAX_VERTICES 4 // don't want anything other than tris and quads
 
@@ -22,9 +24,9 @@ public:
   Vertex v[POLY_MAX_VERTICES];
   int numVertices;
 
-  const unsigned short *texture; // for texturing
-  int texwidth;                  // width of texture
-  int texheight;                 // height of texture
+  const uint16_t *texture; // for texturing
+  int texwidth;            // width of texture
+  int texheight;           // height of texture
 
   double r, g, b; // for flat coloring
 

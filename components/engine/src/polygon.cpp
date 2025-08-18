@@ -1,8 +1,5 @@
 #include "polygon.hpp"
 
-double z_buffer[SIZE_X * SIZE_Y];
-short display_buffer[SIZE_X * SIZE_Y];
-
 // General Transformation Methods, only operate on x,y,z,w of vertices
 void Poly::Transform(const Matrix &_m) {
   v[0].Transform(_m);

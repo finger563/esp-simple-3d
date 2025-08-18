@@ -38,6 +38,11 @@ static bool video_task_callback(std::mutex &m, std::condition_variable &cv, bool
 static void clear_screen();
 static void push_frame(const void *frame);
 
+// rendering
+float *z_buffer{nullptr};          // [SIZE_X * SIZE_Y];
+uint16_t *display_buffer{nullptr}; // [SIZE_X * SIZE_Y];
+static void updatePixels(uint16_t *dst);
+
 static constexpr int num_rows_in_vram = 50;
 static constexpr size_t vram_size = hal::lcd_width() * num_rows_in_vram * sizeof(hal::Pixel);
 static constexpr size_t fb_size = hal::lcd_width() * hal::lcd_height() * sizeof(hal::Pixel);
@@ -198,15 +203,7 @@ public:
   Player_c(Player_c &s) { *this = s; }
   ~Player_c() {}
 
-  Player_c &operator=(Player_c &s) {
-    if (this != &s) {
-      registered = s.registered;
-      info = s.Info();
-      objects = s.Objects();
-      eye = s.Eye();
-    }
-    return *this; // by convention, always return *this
-  }
+  Player_c &operator=(Player_c &s) = default;
 
   Player_s Info() const { return info; }
   void Info(const Player_s &s) { info = s; }
@@ -219,7 +216,7 @@ public:
     tempeye = eye;
   }
 
-  World Level() const { return level; }
+  World &Level() { return level; }
   void Level(const World &l) {
     level = l;
     objectlist = level.GetRenderList();
@@ -271,19 +268,38 @@ public:
   }
 };
 
-static Player_c player;
+static std::unique_ptr<Player_c> player;
 
 extern "C" void app_main(void) {
   logger.info("Bootup");
 
   // initialize the file system
   auto &fs = espp::FileSystem::get();
-  std::error_code ec;
+  // NOTE: partition label is configured by menuconfig and should match the
+  //       partition label in the partition table (partitions.csv).
+  // returns a const char*
+  auto partition_label = fs.get_partition_label();
+  // returns a std::string
+  auto mount_point = fs.get_mount_point();
+  // returns a std::filesystem::path
+  auto root_path = fs.get_root_path();
   namespace stdfs = std::filesystem;
-  const stdfs::path texture_dir = fs.get_root_path() / stdfs::path{"textures"};
+  const stdfs::path texture_dir = root_path / stdfs::path{"textures"};
+
+  logger.info("Partition label: {}", partition_label);
+  logger.info("Mount point:     {}", mount_point);
+  logger.info("Root path:       {}", root_path.string());
+  // human_readable returns a string with the size and unit, e.g. 1.2 MB
+  auto total_space = fs.human_readable(fs.get_total_space());
+  auto free_space = fs.human_readable(fs.get_free_space());
+  auto used_space = fs.human_readable(fs.get_used_space());
+  logger.info("Total space: {}", total_space);
+  logger.info("Free space:  {}", free_space);
+  logger.info("Used space:  {}", used_space);
 
   // check that it exists - IT SHOULDN'T
-  logger.info("Directory {} exists: {}", texture_dir.string(), stdfs::exists(texture_dir));
+  std::error_code ec;
+  logger.info("Directory {} exists: {}", texture_dir.string(), stdfs::exists(texture_dir, ec));
 
   Jpeg decoder;
 
@@ -304,13 +320,17 @@ extern "C" void app_main(void) {
 
   // now go through each of the elements, decode them, and update them
   for (const auto &[path, info] : textures) {
-    if (!stdfs::exists(path)) {
+    logger.debug("Loading texture file {}...", path.string());
+    if (!stdfs::exists(path, ec)) {
       logger.error("Texture file {} does not exist", path.string());
       continue;
     }
 
     // decode the jpeg file
-    decoder.decode(path.c_str());
+    if (!decoder.decode(path.c_str())) {
+      logger.error("Couldn't decode {}", path.string());
+      continue;
+    }
     *info.width = decoder.get_width();
     *info.height = decoder.get_height();
     // now make a copy of the decoded pixels and update the pointer
@@ -326,6 +346,7 @@ extern "C" void app_main(void) {
 
     logger.info("Loaded texture {}: {}x{}", path.string(), decoder.get_width(),
                 decoder.get_height());
+    logger.info("Texture pointer: {}", fmt::ptr(*info.ptr));
   }
 
   // initialize the hardware abstraction layer
@@ -350,6 +371,14 @@ extern "C" void app_main(void) {
     return;
   }
 
+  // allocate the required z-buffer for the engine
+  constexpr size_t z_buffer_size = SIZE_X * SIZE_Y * sizeof(float);
+  z_buffer = (float *)heap_caps_malloc(z_buffer_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!z_buffer) {
+    logger.error("Could not allocate z-buffer");
+    return;
+  }
+
   // allocate some DMA-capable VRAM for jpeg decoding / display operations
   vram0 = (uint8_t *)heap_caps_malloc(vram_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
   vram1 = (uint8_t *)heap_caps_malloc(vram_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
@@ -364,6 +393,7 @@ extern "C" void app_main(void) {
     return;
   }
 
+  logger.info("Allocated z-buffer: {} B", z_buffer_size);
   logger.info("Allocated frame buffers: fb0 = {} B, fb1 = {} B", fb_size, fb_size);
   logger.info("Allocated VRAM: vram0 = {} B, vram1 = {} B", vram_size, vram_size);
 
@@ -376,6 +406,10 @@ extern "C" void app_main(void) {
   // clear the screen
   logger.info("Clearing screen");
   clear_screen();
+
+  // make the player
+  player = std::make_unique<Player_c>(Player_s("Player1", 1));
+  player->Level(1); // load level 1
 
   // now initialize the engine
 
@@ -403,9 +437,18 @@ extern "C" void app_main(void) {
 
   // make a simple task that prints "Hello World!" every second
   espp::Task task({.callback = [&](auto &m, auto &cv) -> bool {
-                     logger.debug("Hello from the task!");
-                     std::unique_lock<std::mutex> lock(m);
-                     cv.wait_for(lock, 1s);
+                     static int fb_index =
+                         0; // frame buffer index, used to swap between fb0 and fb1
+                     // select the frame buffer
+                     uint16_t *fb_ptr =
+                         (uint16_t *)((uint32_t)fb0 * (fb_index ^ 0x01) + (uint32_t)fb0 * fb_index);
+                     // swap the frame buffer index
+                     fb_index = fb_index ^ 0x01;
+                     // render the scene
+                     updatePixels(fb_ptr);
+                     // push the frame to the video task
+                     push_frame(fb_ptr);
+                     logger.info("Pushed frame to video task");
                      // we don't want to stop the task, so return false
                      return false;
                    },
@@ -415,32 +458,33 @@ extern "C" void app_main(void) {
                    }});
   task.start();
 
-  // also print in the main thread
   while (true) {
-    logger.debug("Hello World!");
+    // TODO[William]: Input processing
     std::this_thread::sleep_for(1s);
   }
 }
 
 // copy an image data to texture buffer, this updates what is rendered
-void updatePixels(uint16_t *dst, int size) {
+void updatePixels(uint16_t *dst) {
   static uint16_t color = 0;
 
   if (!dst)
     return;
 
-  uint16_t *ptr = (uint16_t *)dst;
+  // set the display_buffer to point to dst, so that the engine will use it.
+  display_buffer = dst;
 
-  for (int y = 0; y < SIZE_Y; y++)
+  for (int y = 0; y < SIZE_Y; y++) {
     for (int x = 0; x < SIZE_X; x++) {
       display_buffer[x + y * SIZE_X] = BACKGROUND_COLOR;
       z_buffer[x + y * SIZE_X] = DEFAULT_Z_BUFFER;
     }
+  }
 
   renderlist.clear();
 
   dynamiclist.clear();
-  std::vector<Object_s> dynamic = player.Objects();
+  std::vector<Object_s> dynamic = player->Objects();
   Object tempobj;
   for (const auto &it : dynamic) {
     switch (it.type) {
@@ -459,10 +503,10 @@ void updatePixels(uint16_t *dst, int size) {
 
   for (auto &it : dynamiclist) {
     it.updateList();
-    Vector3D tmppos = it.GetPosition() - player.Eye().GetPosition();
+    Vector3D tmppos = it.GetPosition() - player->Eye().GetPosition();
     it.TranslateTemp(tmppos);
     worldToCamera.SetIdentity();
-    worldToCamera = worldToCamera * player.Eye().GetWorldToCamera();
+    worldToCamera = worldToCamera * player->Eye().GetWorldToCamera();
     it.TransformToCamera(worldToCamera);
     it.TransformToPerspective(perspectiveProjection);
     std::vector<Poly> templist = it.GetRenderList();
@@ -471,10 +515,10 @@ void updatePixels(uint16_t *dst, int size) {
 
   for (auto &it : objectlist) {
     it.updateList();
-    Vector3D tmppos = it.GetPosition() - player.Eye().GetPosition();
+    Vector3D tmppos = it.GetPosition() - player->Eye().GetPosition();
     it.TranslateTemp(tmppos);
     worldToCamera.SetIdentity();
-    worldToCamera = worldToCamera * player.Eye().GetWorldToCamera();
+    worldToCamera = worldToCamera * player->Eye().GetWorldToCamera();
     it.TransformToCamera(worldToCamera);
     it.TransformToPerspective(perspectiveProjection);
     std::vector<Poly> templist = it.GetRenderList();
@@ -495,23 +539,15 @@ void updatePixels(uint16_t *dst, int size) {
   }
 
   if (display_z_buffer) {
+    // only used if we display the z-buffer
+    uint16_t *ptr = (uint16_t *)dst;
+
     // display the z buffer
     for (size_t i = 0; i < IMAGE_HEIGHT; ++i) {
       for (size_t j = 0; j < IMAGE_WIDTH; ++j) {
         // copy 4 bytes at once
         *ptr = ((int)(z_buffer[j + i * SIZE_X]) << 16) + ((int)(z_buffer[j + i * SIZE_X]) << 8) +
                (int)(z_buffer[j + i * SIZE_X]);
-        ++ptr;
-      }
-    }
-  } else {
-    // display the color buffer
-    for (size_t i = 0; i < IMAGE_HEIGHT; ++i) {
-      for (size_t j = 0; j < IMAGE_WIDTH; ++j) {
-        // copy 4 bytes at once
-        *ptr = ((int)RED_RGB(display_buffer[j + i * SIZE_X]) << 16) +
-               ((int)GRN_RGB(display_buffer[j + i * SIZE_X]) << 8) +
-               (int)BLU_RGB(display_buffer[j + i * SIZE_X]);
         ++ptr;
       }
     }

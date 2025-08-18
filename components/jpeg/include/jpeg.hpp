@@ -10,17 +10,7 @@
 
 class Jpeg {
 public:
-  static constexpr size_t max_encoded_size = 100 * 1024;
-  static constexpr size_t max_decoded_size = 100 * 200 * 2;
-
-  Jpeg() {
-    if (!encoded_data_)
-      encoded_data_ =
-          (uint8_t *)heap_caps_malloc(max_encoded_size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
-    if (!decoded_data_)
-      decoded_data_ =
-          (uint8_t *)heap_caps_malloc(max_decoded_size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
-  }
+  Jpeg() {}
 
   ~Jpeg() {
     if (encoded_data_) {
@@ -33,25 +23,59 @@ public:
     }
   }
 
-  void decode(const char *filename) {
+  bool decode(const char *filename) {
     // open the image
     int32_t encoded_length = 0;
     open(filename, &encoded_length);
+    // get the length of the file
+    if (encoded_length <= 0) {
+      fmt::print("Couldn't open {}\n", filename);
+      close();
+      return false;
+    }
+    // allocate memory for the encoded data
+    if (encoded_data_) {
+      heap_caps_free(encoded_data_);
+      encoded_data_ = nullptr;
+    }
+    encoded_data_ =
+        (uint8_t *)heap_caps_malloc(encoded_length, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+    if (!encoded_data_) {
+      fmt::print("Couldn't allocate memory for encoded data\n");
+      close();
+      return false;
+    }
+
     read(encoded_data_, encoded_length);
     close();
     decoder_.openRAM(encoded_data_, encoded_length, &Jpeg::on_data_decode);
-    decoder_.setPixelType(RGB565_LITTLE_ENDIAN);
+    decoder_.setPixelType(RGB565_BIG_ENDIAN);
     image_width_ = decoder_.getWidth();
     image_height_ = decoder_.getHeight();
-    image_size_ = image_height_ * image_width_ * 2;
+    image_size_ = image_height_ * image_width_ * sizeof(uint16_t);
+    if (decoded_data_) {
+      heap_caps_free(decoded_data_);
+      decoded_data_ = nullptr;
+    }
+    decoded_data_ = (uint8_t *)heap_caps_malloc(image_size_, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+    if (!decoded_data_) {
+      fmt::print("Couldn't allocate memory for decoded data\n");
+      image_size_ = 0;
+      image_width_ = 0;
+      image_height_ = 0;
+      decoder_.close();
+      return false;
+    }
     // now actually decode it
     if (!decoder_.decode(0, 0, 0)) {
       image_size_ = 0;
       image_width_ = 0;
       image_height_ = 0;
       fmt::print("Couldn't decode!\n");
+      return false;
     }
     decoder_.close();
+    return true;
   }
 
   int get_width() { return image_width_; }
@@ -106,7 +130,7 @@ protected:
     for (uint16_t i = 0; i < height; i++) {
       uint16_t y = ys + i;
       uint16_t dst_offset = y * image_width_ + xs;
-      uint16_t src_offset = i * width + xs;
+      uint16_t src_offset = i * width;
       memcpy(&dst_buffer[dst_offset], &src_buffer[src_offset], num_bytes_per_row);
     }
     // continue decode
