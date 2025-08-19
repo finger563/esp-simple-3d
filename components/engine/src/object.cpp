@@ -13,7 +13,7 @@ Object::Object() {
 
 // Alternate texture, veloctity, heading, position
 Object::Object(const unsigned short *texture, const int texWid, const int texHgt,
-               const Vector3D &vel, Point3D pos, double _rx, double _ry, double _rz) {
+               const Vector3D &vel, Point3D pos, float _rx, float _ry, float _rz) {
   velocity = vel;
   position = pos;
   tex = texture;
@@ -26,7 +26,7 @@ Object::Object(const unsigned short *texture, const int texWid, const int texHgt
 
 // Alternate Constructor
 Object::Object(Poly &poly, const unsigned short *texture, const int texWid, const int texHgt,
-               const Vector3D &vel, Point3D pos, double _rx, double _ry, double _rz) {
+               const Vector3D &vel, Point3D pos, float _rx, float _ry, float _rz) {
   velocity = vel;
   position = pos;
   tex = texture;
@@ -71,8 +71,8 @@ void Object::Translate(Vector3D &v) {
 }
 
 void Object::RotateToHeading() {
-  double r = cos(phi);
-  double x = r * sin(theta), y = sin(phi), z = r * cos(theta);
+  float r = cosf(phi);
+  float x = r * sinf(theta), y = sinf(phi), z = r * cosf(theta);
   Vector3D forward = normalize(Vector3D(x, y, z));
   Vector3D up = normalize(Vector3D(0, 1, 0));
   Vector3D right = normalize(Cross(up, forward));
@@ -91,8 +91,8 @@ void Object::RotateToHeading() {
 }
 
 void Object::RotateToHeading(const Vector3D &changeUp) {
-  double r = cos(phi);
-  double x = r * sin(theta), y = sin(phi), z = r * cos(theta);
+  float r = cosf(phi);
+  float x = r * sinf(theta), y = sinf(phi), z = r * cosf(theta);
   Vector3D forward = normalize(Vector3D(x, y, z));
   Vector3D up = normalize(changeUp);
   Vector3D right = normalize(Cross(up, forward));
@@ -128,8 +128,8 @@ void Object::TranslateTemp(const Vector3D &v) {
 }
 
 void Object::RotateTempToHeading() {
-  double r = cos(phi);
-  double x = r * sin(theta), y = sin(phi), z = r * cos(theta);
+  float r = cosf(phi);
+  float x = r * sinf(theta), y = sinf(phi), z = r * cosf(theta);
   Vector3D forward = normalize(Vector3D(x, y, z));
   Vector3D up = normalize(Vector3D(0, 1, 0));
   Vector3D right = normalize(Cross(up, forward));
@@ -152,7 +152,7 @@ void Object::add(const Poly &poly) {
   updateList();
 }
 
-void Object::GenerateCube(double size) {
+void Object::GenerateCube(float size) {
   master.clear();
 
   // stores in objects master list
@@ -206,11 +206,11 @@ void Object::GenerateCube(double size) {
 
   for (auto &it : master) {
     it.SetTexture(tex, texWidth, texHeight);
-    it.SetColor(rand() / (double)RAND_MAX, rand() / (double)RAND_MAX, rand() / (double)RAND_MAX);
+    it.SetColor(rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX);
 #if 0
-		it.SetVertexColors(rand()/(double)RAND_MAX,rand()/(double)RAND_MAX,rand()/(double)RAND_MAX,
-			rand()/(double)RAND_MAX,rand()/(double)RAND_MAX,rand()/(double)RAND_MAX,
-			rand()/(double)RAND_MAX,rand()/(double)RAND_MAX,rand()/(double)RAND_MAX);
+        it.SetVertexColors(rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,
+            rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,
+            rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,rand()/(float)RAND_MAX);
 #else
     it.SetVertexColors(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9);
 #endif
@@ -225,7 +225,7 @@ void Object::GenerateCube(double size) {
   updateList();
 }
 
-void Object::GenerateTetra(double size) {
+void Object::GenerateTetra(float size) {
   Vertex p1 = Vertex(size, 0, -size / sqrt(2.0)), p2 = Vertex(-size, 0, -size / sqrt(2.0)),
          p3 = Vertex(0, size, size / sqrt(2.0)), p4 = Vertex(0, -size, size / sqrt(2.0));
 
@@ -260,7 +260,7 @@ void Object::GenerateTetra(double size) {
   updateList();
 }
 
-void Object::GenerateFloor(double length, double depth) {
+void Object::GenerateFloor(float length, float depth) {
 
   master.clear();
   master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(-length, 0, length, 1, 0, 0),
@@ -284,7 +284,7 @@ void Object::GenerateFloor(double length, double depth) {
 }
 
 // Incomplete...
-void Object::GenerateCeiling(double length, double depth) {
+void Object::GenerateCeiling(float length, float depth) {
   position = Point3D(0, depth, 0);
 
   theta = 0;
@@ -315,7 +315,7 @@ void Object::GenerateCeiling(double length, double depth) {
 ///////////// 1 = left: the left of player init
 ///////////// 2 = right: to the right of player init
 ///////////// 3 = back: behind player init
-void Object::GenerateWall(size_t type, double length, double depth) {
+void Object::GenerateWall(size_t type, float length, float depth) {
 
   switch (type) {
   case 0: // front
@@ -360,16 +360,16 @@ void Object::GenerateWall(size_t type, double length, double depth) {
   updateList();
 }
 
-void Object::GenerateShot(const Vector3D &pos, double theta_, double phi_) {
+void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
   master.clear();
 
   master.push_back(Poly(Vertex(0, 0, 4, 1), Vertex(0, 2, -2, 1), Vertex(0, -2, -2, 1), Vertex(), 3,
                         Vector3D(1, 0, 0), COLORED));
   master.begin()->SetDoubleSided(true);
   master.begin()->SetVertexColors(
-      rand() / (double)RAND_MAX, rand() / (double)RAND_MAX, rand() / (double)RAND_MAX,
-      rand() / (double)RAND_MAX, rand() / (double)RAND_MAX, rand() / (double)RAND_MAX,
-      rand() / (double)RAND_MAX, rand() / (double)RAND_MAX, rand() / (double)RAND_MAX);
+      rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX,
+      rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX,
+      rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX);
 
   rx = 0;
   ry = 0;
@@ -385,7 +385,7 @@ void Object::GenerateShot(const Vector3D &pos, double theta_, double phi_) {
   RotateToHeading();
 }
 
-void Object::GeneratePlayer(const Vector3D &pos, double theta_, double phi_,
+void Object::GeneratePlayer(const Vector3D &pos, float theta_, float phi_,
                             const unsigned short *texture, const int texWid, const int texHgt) {
   tex = texture;
   texWidth = texWid;
@@ -413,18 +413,18 @@ bool Object::SetPosition(const Point3D &pos) {
 
 Point3D Object::GetPosition(void) const { return position; }
 
-bool Object::SetBoudingEllipsoid(double x, double y, double z) {
+bool Object::SetBoudingEllipsoid(float x, float y, float z) {
   rx = x;
   ry = y;
   rz = z;
   return true;
 }
 
-double Object::GetRadiusX(void) const { return rx; }
+float Object::GetRadiusX(void) const { return rx; }
 
-double Object::GetRadiusY(void) const { return ry; }
+float Object::GetRadiusY(void) const { return ry; }
 
-double Object::GetRadiusZ(void) const { return rz; }
+float Object::GetRadiusZ(void) const { return rz; }
 
 bool Object::SetRenderType(RenderType rt) {
   for (auto &poly : master) {
@@ -480,7 +480,7 @@ void Object::projectileInit(const Vector3D &head, const Vector3D &pos) {
 }
 
 bool Object::CollidesWith(const Object &b) {
-  double distance = magnitude(b.GetPosition() - position);
+  float distance = magnitude(b.GetPosition() - position);
   // if ( distance >= (radius + b.getradius()) )
   //	return false;
   if (!updateList())
@@ -496,7 +496,7 @@ bool Object::CollidesWith(const Object &b) {
                B = Vector3D(it.v[1].x, it.v[1].y, it.v[1].z),
                C = Vector3D(it.v[2].x, it.v[2].y, it.v[2].z);
       Vector3D p, n1, n2, n3;
-      double t = (-it.normal * (p0 - A)) / (it.normal * (p1 - p0));
+      float t = (-it.normal * (p0 - A)) / (it.normal * (p1 - p0));
       if (t > 0 && t < 1) {
         p = p0 + (p1 - p0) * t;
         n1 = normalize(Cross(A - B, p - B));

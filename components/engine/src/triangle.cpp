@@ -1,6 +1,7 @@
 #include "triangle.hpp"
 
 #include "main.hpp"
+#include <cmath>
 
 extern float z_buffer[SIZE_X * SIZE_Y];
 extern short display_buffer[SIZE_X * SIZE_Y];
@@ -10,7 +11,10 @@ void Triangle::Rotate(const Matrix &m) {
   a = m * a;
   b = m * b;
   c = m * c;
-  normal = m * normal;
+  {
+    Vector3D n = Vector3D(normal.x, normal.y, normal.z, 0);
+    normal = m * n;
+  }
 }
 
 void Triangle::Translate(const Vector3D &v) {
@@ -168,7 +172,7 @@ void Triangle::TransformToScreen(const Matrix &m) {
   dtx43 = (u3.x - u4.x) / (sy3 - sy4);
   dty43 = (u3.y - u4.y) / (sy3 - sy4);
 
-  if (abs(s1.y - s2.y) < EPSILON) { // Flat top
+  if (std::fabs(s1.y - s2.y) < EPSILON) { // Flat top
     if (s1.x < s2.x) {
       type = FLAT_TOP_RIGHT;
       sx = s1.x;
@@ -199,7 +203,7 @@ void Triangle::TransformToScreen(const Matrix &m) {
     stv = u1.y;
     etu = u1.x;
     etv = u1.y;
-    if (abs(s2.y - s3.y) < EPSILON) { // Flat Bottom
+    if (std::fabs(s2.y - s3.y) < EPSILON) { // Flat Bottom
       if (s3.x < s2.x) {
         type = FLAT_BOTTOM_RIGHT;
       } else {
@@ -587,19 +591,26 @@ void Triangle::DrawTexturedZbuffer(const int y) {
     return;
   }
   if (ex != ex || sx != sx || // test for bad values (IND/INF)
-      fabs(sx) == std::numeric_limits<float>::infinity() ||
-      fabs(ex) == std::numeric_limits<float>::infinity())
+      std::fabs(sx) == std::numeric_limits<float>::infinity() ||
+      std::fabs(ex) == std::numeric_limits<float>::infinity())
     return;
   for (x = sx; x <= ex; x++) {
     if (zi > z_buffer[x + y * SIZE_X]) {
       z_buffer[x + y * SIZE_X] = zi;
       tx = (x / zi - startx) * uscale + stu;
       ty = (x / zi - startx) * vscale + stv;
-      int index = (int)tx + texwidth * ((int)ty);
-      if (index < 0)
-        index = 0;
-      if (index > texwidth * texwidth)
-        index = texwidth / 2 + texwidth * texwidth / 2;
+      int txi = static_cast<int>(tx);
+      int tyi = static_cast<int>(ty);
+      if (txi < 0)
+        txi = 0;
+      else if (txi >= texwidth)
+        txi = texwidth - 1;
+      int texheight = texwidth; // square textures assumption
+      if (tyi < 0)
+        tyi = 0;
+      else if (tyi >= texheight)
+        tyi = texheight - 1;
+      int index = txi + texwidth * tyi;
       display_buffer[x + y * SIZE_X] = texture[index];
     }
     zi += dzx; // because dx > 0, we increment
@@ -684,7 +695,7 @@ void Triangle::TransformToScreenHomogeneous(const Matrix &m) {
   s4.z = 1 / (-(sy3 - sy1) + (s3.z - s1.z) * (s1.y + (s2.y - s1.y))) *
          ((s3.z - s1.z) * sy1 - (sy3 - sy1) * s1.z);
 
-  if (abs(s1.y - s2.y) < EPSILON) { // Flat top
+  if (std::fabs(s1.y - s2.y) < EPSILON) { // Flat top
     if (s1.x < s2.x) {
       type = FLAT_TOP_RIGHT;
       sx = s1.x;
@@ -715,7 +726,7 @@ void Triangle::TransformToScreenHomogeneous(const Matrix &m) {
     stv = u1.y;
     etu = u1.x;
     etv = u1.y;
-    if (abs(s2.y - s3.y) < EPSILON) { // Flat Bottom
+    if (std::fabs(s2.y - s3.y) < EPSILON) { // Flat Bottom
       if (s3.x < s2.x) {
         type = FLAT_BOTTOM_RIGHT;
       } else {

@@ -1,3 +1,3 @@
 #pragma once
 
-#define EPSILON ((double)0.3)
+#define EPSILON ((float)0.3f)

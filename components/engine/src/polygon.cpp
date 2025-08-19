@@ -7,7 +7,14 @@ void Poly::Transform(const Matrix &_m) {
   v[2].Transform(_m);
   if (numVertices == 4)
     v[3].Transform(_m);
-  normal = (_m * normal);
+  {
+    // Transform normal as a direction (w=0) to avoid translation
+    Vector3D n = Vector3D(normal.x, normal.y, normal.z, 0);
+    n = _m * n;
+    normal.x = n.x;
+    normal.y = n.y;
+    normal.z = n.z;
+  }
 }
 
 void Poly::Translate(const Vector3D &_v) {
@@ -18,7 +25,7 @@ void Poly::Translate(const Vector3D &_v) {
     v[3].Translate(_v);
 }
 
-void Poly::Translate(const double _x, const double _y, const double _z) {
+void Poly::Translate(const float _x, const float _y, const float _z) {
   v[0].Translate(_x, _y, _z);
   v[1].Translate(_x, _y, _z);
   v[2].Translate(_x, _y, _z);
@@ -33,7 +40,14 @@ void Poly::TransformToCamera(const Matrix &_m) {
   v[2].TransformToCamera(_m);
   if (numVertices == 4)
     v[3].TransformToCamera(_m);
-  normal = (_m * normal);
+  {
+    // Transform normal as a direction (w=0) to avoid translation
+    Vector3D n = Vector3D(normal.x, normal.y, normal.z, 0);
+    n = _m * n;
+    normal.x = n.x;
+    normal.y = n.y;
+    normal.z = n.z;
+  }
 }
 
 void Poly::TransformToPerspective(const Matrix &_m) {
@@ -46,7 +60,7 @@ void Poly::TransformToPerspective(const Matrix &_m) {
   visible = false;
   Vector3D eye = Vector3D(0, 0, -1);
   Vector3D cull = eye - Vector3D(v[0].ex, v[0].ey, v[0].ez);
-  double test = cull * normal;
+  float test = cull * normal;
   if (test > 0) {
     visible = true; // Triangle is renderable
     return;
@@ -82,8 +96,8 @@ void Poly::TransformToPixel(const Matrix &_m) {
 
 // Pipeline function methods
 void Poly::Clip() {
-  double BC[POLY_MAX_VERTICES][6] = {}; // boundary tests
-  int line[POLY_MAX_VERTICES][6] = {};  // which lines cross
+  float BC[POLY_MAX_VERTICES][6] = {}; // boundary tests
+  int line[POLY_MAX_VERTICES][6] = {}; // which lines cross
   int lines[6] = {};
 
   for (int i = 0; i < numVertices; i++) {
@@ -158,7 +172,7 @@ void Poly::Clip() {
   // }
 
   Vertex sv = Vertex(), ev = Vertex();
-  double a1, a2;
+  float a1, a2;
 
   if (numVertices == 3) { // Poly is a triangle
     switch (lines[4]) {
@@ -263,12 +277,12 @@ void Poly::HomogeneousDivide() {
 }
 
 void Poly::SetupRasterization() {
-  double al, ar;
+  float al, ar;
 
   if (doublesided) {
     Vector3D eye = Vector3D(0, 0, -1);
     Vector3D cull = eye - Vector3D(v[0].ex, v[0].ey, v[0].ez);
-    double test = cull * normal;
+    float test = cull * normal;
     if (test > 0) {
       Vertex temp[4];
       for (int i = 0; i < numVertices; i++)
@@ -352,10 +366,10 @@ void Poly::SetupRasterization() {
 // Rasterization Methods
 void Poly::Rasterize() {
   for (int y = MaxY(); y >= MinY(); y--) {
-    double BC[POLY_MAX_VERTICES] = {}; // boundary tests against y scanline
-    int line[POLY_MAX_VERTICES] = {};  // which lines cross y scanline
+    float BC[POLY_MAX_VERTICES] = {}; // boundary tests against y scanline
+    int line[POLY_MAX_VERTICES] = {}; // which lines cross y scanline
     int lines = 0;
-    double a1, a2,
+    float a1, a2,
         ai; // alphas for each crossing line (there can only be 2), and for inside scanline
     Vertex sv, ev, vi; // Start and end scanline vertices, and rendering vertex
 
@@ -451,7 +465,7 @@ void Poly::Rasterize() {
       ev = sv + (ev - sv) * ai;
     }
     if (floor(vi.x) == ceil(ev.x))
-      return;
+      continue;
     for (int x = ceil(vi.x); x <= floor(ev.x); x++) {
       ai = (sv.x - x) / ((sv.x - x) - (ev.x - x));
       vi = sv + (ev - sv) * ai;
@@ -466,7 +480,7 @@ void Poly::Rasterize() {
           vi.g = vi.g / vi.hw; // divide all interpolated values by hw
           vi.b = vi.b / vi.hw; // divide all interpolated values by hw
           display_buffer[x + y * SIZE_X] =
-              RGB_MAKE((int)(vi.r * 255), (int)(vi.g * 255), (int)(vi.g * 255));
+              RGB_MAKE((int)(vi.r * 255), (int)(vi.g * 255), (int)(vi.b * 255));
           break;
         case SMOOTH:
           break;
@@ -493,10 +507,10 @@ void Poly::Rasterize() {
 void Poly::Rasterize(const int y) {
   if (y > MaxY() || y < MinY())
     return;
-  double BC[POLY_MAX_VERTICES] = {}; // boundary tests against y scanline
-  int line[POLY_MAX_VERTICES] = {};  // which lines cross y scanline
+  float BC[POLY_MAX_VERTICES] = {}; // boundary tests against y scanline
+  int line[POLY_MAX_VERTICES] = {}; // which lines cross y scanline
   int lines = 0;
-  double a1, a2, ai; // alphas for each crossing line (there can only be 2), and for inside scanline
+  float a1, a2, ai;  // alphas for each crossing line (there can only be 2), and for inside scanline
   Vertex sv, ev, vi; // Start and end scanline vertices, and rendering vertex
 
   for (int i = 0; i < numVertices; i++) {
@@ -638,11 +652,11 @@ void Poly::RasterizeFast(const int y) {
   if (y > ySorted[0].y || (y < ySorted[2].y && numVertices == 3) || y <= ySorted[3].y)
     return;
 
-  double interp[2][NUM_VERTEX_DATA]; // on the stack for speed, but only use numInterps
-  double px[NUM_VERTEX_DATA];        // For the pixel in the scanline
+  float interp[2][NUM_VERTEX_DATA]; // on the stack for speed, but only use numInterps
+  float px[NUM_VERTEX_DATA];        // For the pixel in the scanline
 
-  double dyl, dyr, ai;
-  double dx;
+  float dyl, dyr, ai;
+  float dx;
   int depthindex = -1, leftindex = 0, rightindex = 0;
 
   if (y < ySorted[0].y && y > ySorted[1].y &&
@@ -666,7 +680,7 @@ void Poly::RasterizeFast(const int y) {
     interp[1][i] = increments[depthindex][1][i] * dyr + v[rightindex][i];
   }
 
-  double sx = (interp[0][0]), ex = (interp[1][0]);
+  float sx = (interp[0][0]), ex = (interp[1][0]);
   ai = 1 / (interp[0][0] - interp[1][0] - 1);
   if (ex < 0 || sx >= SIZE_X)
     return;
@@ -714,8 +728,8 @@ void Poly::RasterizeFast(const int y) {
 }
 
 // Helper Functions
-double Poly::MinX() {
-  double min = v[0].x;
+float Poly::MinX() {
+  float min = v[0].x;
   for (int i = 0; i < numVertices; i++) {
     if (min > v[i].x)
       min = v[i].x;
@@ -723,8 +737,8 @@ double Poly::MinX() {
   return min;
 }
 
-double Poly::MinY() {
-  double min = v[0].y;
+float Poly::MinY() {
+  float min = v[0].y;
   for (int i = 0; i < numVertices; i++) {
     if (min > v[i].y)
       min = v[i].y;
@@ -732,8 +746,8 @@ double Poly::MinY() {
   return min;
 }
 
-double Poly::MinZ() {
-  double min = v[0].z;
+float Poly::MinZ() {
+  float min = v[0].z;
   for (int i = 0; i < numVertices; i++) {
     if (min > v[i].z)
       min = v[i].z;
@@ -741,8 +755,8 @@ double Poly::MinZ() {
   return min;
 }
 
-double Poly::MaxX() {
-  double max = v[0].x;
+float Poly::MaxX() {
+  float max = v[0].x;
   for (int i = 0; i < numVertices; i++) {
     if (max < v[i].x)
       max = v[i].x;
@@ -750,8 +764,8 @@ double Poly::MaxX() {
   return max;
 }
 
-double Poly::MaxY() {
-  double max = v[0].y;
+float Poly::MaxY() {
+  float max = v[0].y;
   for (int i = 0; i < numVertices; i++) {
     if (max < v[i].y)
       max = v[i].y;
@@ -759,8 +773,8 @@ double Poly::MaxY() {
   return max;
 }
 
-double Poly::MaxZ() {
-  double max = v[0].z;
+float Poly::MaxZ() {
+  float max = v[0].z;
   for (int i = 0; i < numVertices; i++) {
     if (max < v[i].z)
       max = v[i].z;

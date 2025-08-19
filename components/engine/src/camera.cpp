@@ -21,15 +21,15 @@ void Camera::Translate(const Vector3D &v) {
 }
 
 void Camera::ComputeAxes() {
-  double r = cos(phi);
-  double x = r * sin(theta), y = sin(phi), z = r * cos(theta);
+  float r = cosf(phi);
+  float x = r * sinf(theta), y = sinf(phi), z = r * cosf(theta);
   forward = normalize(Vector3D(x, y, z));
   up = normalize(Vector3D(0, 1, 0));
   right = normalize(Cross(up, forward));
   up = normalize(Cross(forward, right));
 }
 
-void Camera::SetAngles(const double _t, const double _p) {
+void Camera::SetAngles(const float _t, const float _p) {
   theta = _t;
   if (theta > 2.0 * 3.141592) {
     theta = theta - 2.0 * 3.141592;
@@ -45,7 +45,7 @@ void Camera::SetAngles(const double _t, const double _p) {
   ComputeAxes();
 }
 
-void Camera::Rotate(const double _t, const double _p) {
+void Camera::Rotate(const float _t, const float _p) {
   theta += _t;
   if (theta > 2.0 * 3.141592) {
     theta = theta - 2.0 * 3.141592;
@@ -77,7 +77,7 @@ Matrix Camera::GetWorldToCamera() {
 
 Point3D Camera::GetPosition() const { return position; }
 
-void Camera::SetPosition(const double x, const double y, const double z) {
+void Camera::SetPosition(const float x, const float y, const float z) {
   position.x = x;
   position.y = y;
   position.z = z;
@@ -85,7 +85,7 @@ void Camera::SetPosition(const double x, const double y, const double z) {
 
 Point3D Camera::GetForward() const { return forward; }
 
-void Camera::SetForward(const double x, const double y, const double z) {
+void Camera::SetForward(const float x, const float y, const float z) {
   forward.x = x;
   forward.y = y;
   forward.z = z;
@@ -93,7 +93,7 @@ void Camera::SetForward(const double x, const double y, const double z) {
 
 Point3D Camera::GetUp() const { return up; }
 
-void Camera::SetUp(const double x, const double y, const double z) {
+void Camera::SetUp(const float x, const float y, const float z) {
   up.x = x;
   up.y = y;
   up.z = z;
@@ -101,7 +101,7 @@ void Camera::SetUp(const double x, const double y, const double z) {
 
 Point3D Camera::GetRight() const { return right; }
 
-void Camera::SetRight(const double x, const double y, const double z) {
+void Camera::SetRight(const float x, const float y, const float z) {
   right.x = x;
   right.y = y;
   right.z = z;
