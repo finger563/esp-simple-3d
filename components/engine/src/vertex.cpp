@@ -9,11 +9,12 @@ void Vertex::Transform(const Matrix &_m) {
   z = v.z;
   w = v.w;
 
-  v = Vector3D(nx, ny, nz);
-  v = _m * v;
-  nx = v.x;
-  ny = v.y;
-  nz = v.z;
+  // Transform normal as a direction (w=0) to avoid translation
+  Vector3D n = Vector3D(nx, ny, nz, 0);
+  n = _m * n;
+  nx = n.x;
+  ny = n.y;
+  nz = n.z;
 }
 
 void Vertex::Translate(const Vector3D &_v) {
@@ -22,7 +23,7 @@ void Vertex::Translate(const Vector3D &_v) {
   z += _v.z;
 }
 
-void Vertex::Translate(const double _x, const double _y, const double _z) {
+void Vertex::Translate(const float _x, const float _y, const float _z) {
   x += _x;
   y += _y;
   z += _z;
@@ -43,11 +44,12 @@ void Vertex::TransformToCamera(const Matrix &_m) {
 
   hw = 1;
 
-  v = Vector3D(nx, ny, nz);
-  v = _m * v;
-  nx = v.x;
-  ny = v.y;
-  nz = v.z;
+  // Transform normal as a direction (w=0) to avoid translation
+  Vector3D n = Vector3D(nx, ny, nz, 0);
+  n = _m * n;
+  nx = n.x;
+  ny = n.y;
+  nz = n.z;
 }
 
 void Vertex::TransformToPerspective(const Matrix &_m) {
@@ -60,7 +62,7 @@ void Vertex::TransformToPerspective(const Matrix &_m) {
 }
 
 void Vertex::HomogeneousDivide() {
-  double tmp = 1 / w;
+  float tmp = 1.0f / w;
   for (int i = 0; i < NUM_VERTEX_DATA; i++)
     data[i] = data[i] * tmp;
 }
@@ -82,7 +84,7 @@ bool Vertex::operator==(const Vertex &rhs) const {
 
 bool Vertex::operator!=(const Vertex &rhs) const {
   for (int i = 0; i < NUM_VERTEX_DATA; i++) {
-    if (data[i] == rhs[i])
+    if (data[i] != rhs[i])
       return true;
   }
   return false;
@@ -102,16 +104,16 @@ Vertex Vertex::operator+(const Vertex &rhs) const {
   return v;
 }
 
-Vertex Vertex::operator*(const double rhs) const {
+Vertex Vertex::operator*(const float rhs) const {
   Vertex v;
   for (int i = 0; i < NUM_VERTEX_DATA; i++)
     v[i] = data[i] * rhs;
   return v;
 }
 
-Vertex Vertex::operator/(const double rhs) const {
+Vertex Vertex::operator/(const float rhs) const {
   Vertex v;
-  double tmp = 1 / rhs;
+  float tmp = 1.0f / rhs;
   for (int i = 0; i < NUM_VERTEX_DATA; i++)
     v[i] = data[i] * tmp;
   return v;

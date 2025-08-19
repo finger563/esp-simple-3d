@@ -17,7 +17,7 @@ void Matrix::SetIdentity() {
   }
 }
 
-void Matrix::SetRotation(double x, double y, double z) {
+void Matrix::SetRotation(float x, float y, float z) {
   SetIdentity();
   data[0][0] = cos(y) * cos(z);
   data[0][1] = cos(x) * sin(z) + sin(x) * sin(y) * cos(z);
@@ -30,7 +30,7 @@ void Matrix::SetRotation(double x, double y, double z) {
   data[2][2] = cos(x) * cos(y);
 }
 
-void Matrix::SetRotation(double theta, Vector3D u) {
+void Matrix::SetRotation(float theta, Vector3D u) {
   SetIdentity();
   data[0][0] = cos(theta) + u.x * u.x * (1 - cos(theta));
   data[0][1] = u.x * u.y * (1 - cos(theta)) - u.z * sin(theta);
@@ -46,7 +46,7 @@ void Matrix::SetRotation(double theta, Vector3D u) {
 void Matrix::Clear() {
   for (int row = 0; row < 4; row++) {
     for (int col = 0; col < 4; col++) {
-      data[row][col] = 0;
+      data[row][col] = 0.0f;
     }
   }
 }
@@ -84,13 +84,13 @@ bool Matrix::operator!=(const Matrix &rhs) const {
   for (int row = 0; row < 4; row++) {
     for (int col = 0; col < 4; col++) {
       if (data[row][col] != rhs.data[row][col])
-        return false;
+        return true;
     }
   }
-  return true;
+  return false;
 }
 
-Matrix Matrix::operator*(const double rhs) const {
+Matrix Matrix::operator*(const float rhs) const {
   Matrix m(*this);
   for (int row = 0; row < 4; row++) {
     for (int col = 0; col < 4; col++) {
@@ -100,7 +100,7 @@ Matrix Matrix::operator*(const double rhs) const {
   return m;
 }
 
-Matrix Matrix::operator/(const double rhs) const {
+Matrix Matrix::operator/(const float rhs) const {
   Matrix m(*this);
   for (int row = 0; row < 4; row++) {
     for (int col = 0; col < 4; col++) {

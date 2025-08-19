@@ -6,7 +6,7 @@
 
 class Matrix {
 public:
-  double data[4][4];
+  float data[4][4];
   Matrix() { SetIdentity(); }
   Matrix(const Matrix &m);
   ~Matrix() {}
@@ -14,15 +14,15 @@ public:
   void Print(int x, int y);
 
   void SetIdentity();
-  void SetRotation(double x, double y, double z); // Euler angle rotation
-  void SetRotation(double theta, Vector3D u);     // Rotate by theta about vector u
+  void SetRotation(float x, float y, float z); // Euler angle rotation
+  void SetRotation(float theta, Vector3D u);   // Rotate by theta about vector u
   void Clear();
   Matrix Transpose(void) const;
 
   Matrix operator-() const;
   Matrix &operator=(const Matrix &rhs);
-  Matrix operator*(const double rhs) const;
-  Matrix operator/(const double rhs) const;
+  Matrix operator*(const float rhs) const;
+  Matrix operator/(const float rhs) const;
   Matrix operator*(const Matrix &rhs) const;
   Matrix operator+(const Matrix &rhs) const;
   Matrix operator-(const Matrix &rhs) const;
