@@ -20,7 +20,7 @@ jobs:
     - name: Checkout repo
       uses: actions/checkout@v4
       with:
-        recursive: true
+        submodules: 'recursive'
 
     - name: Build Main Code
       uses: espressif/esp-idf-ci-action@v1
