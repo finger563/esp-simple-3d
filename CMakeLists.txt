@@ -11,7 +11,7 @@ set(EXTRA_COMPONENT_DIRS
 
 set(
   COMPONENTS
-  "main esptool_py esp-box engine jpegdec jpeg"
+  "main esptool_py esp-box engine jpeg png"
   CACHE STRING
   "List of components to include"
   )

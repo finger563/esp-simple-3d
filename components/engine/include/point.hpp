@@ -37,6 +37,21 @@ public:
 
   void Print() {}
 
+  float MagnitudeSquared() const { return (x * x + y * y + z * z); }
+
+  float Magnitude() const { return sqrtf(MagnitudeSquared()); }
+
+  float Dot(const Point3D &rhs) const { return (x * rhs.x + y * rhs.y + z * rhs.z); }
+
+  Point3D Cross(const Point3D &rhs) const {
+    return Point3D((y * rhs.z - z * rhs.y), (z * rhs.x - x * rhs.z), (x * rhs.y - y * rhs.x));
+  }
+
+  Point3D Normalize() const {
+    float mag = Magnitude();
+    return Point3D(x / mag, y / mag, z / mag, w);
+  }
+
   Point3D operator-() const { return Point3D(-x, -y, -z, w); }
 
   Point3D &operator=(const Point3D &rhs) = default;
@@ -57,21 +72,18 @@ public:
 typedef Point3D Vector3D;
 
 inline static Vector3D Cross(const Vector3D &a, const Vector3D &b) {
-  return Vector3D(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+  return Vector3D((a.y * b.z - a.z * b.y), (a.z * b.x - a.x * b.z), (a.x * b.y - a.y * b.x));
 }
+
+inline static float magnitude_squared(const Vector3D &rhs) {
+  return rhs.x * rhs.x + rhs.y * rhs.y + rhs.z * rhs.z;
+}
+
+inline static float magnitude(const Vector3D &rhs) { return sqrtf(magnitude_squared(rhs)); }
 
 inline static Vector3D normalize(const Vector3D &rhs) {
-  float mag = sqrtf(rhs.x * rhs.x + rhs.y * rhs.y + rhs.z * rhs.z);
-
+  float mag = magnitude(rhs);
   return Vector3D(rhs.x / mag, rhs.y / mag, rhs.z / mag);
-}
-
-inline static float magnitude(const Vector3D &rhs) {
-  return sqrtf(rhs.x * rhs.x + rhs.y * rhs.y + rhs.z * rhs.z);
-}
-
-inline static Vector3D crossProduct(const Vector3D &a, const Vector3D &b) {
-  return Vector3D((a.y * b.z - a.z * b.y), (a.z * b.x - a.x * b.z), (a.x * b.y - a.y * b.x));
 }
 
 class Point2D {

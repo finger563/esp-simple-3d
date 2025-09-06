@@ -53,6 +53,15 @@ public:
   ///////////// 3 = right: to the right of player init
   void GenerateWall(size_t type, float length = 50, float depth = -10);
 
+  // Utility: generate axis lines (X=red, Y=green, Z=blue) centered at origin
+  void GenerateAxes(float length = 10.0f, float thickness = 0.02f);
+
+  // Generate a rectangular prism centered at origin with half-size per axis, then
+  // apply a transform (rotation/translation) before adding to master. The prism
+  // is COLORED using the provided RGB in [0,1]. Does not clear existing geometry.
+  void GenerateRectangularPrism(const Vector3D &halfSize, const Matrix &transform,
+                                const Vector3D &color);
+
   void GenerateShot(const Vector3D &pos, float theta_, float phi_);
 
   void GeneratePlayer(const Vector3D &pos, float theta_, float phi_,
@@ -79,12 +88,12 @@ public:
   // Master list operations
   void RotateToHeading();
   void RotateToHeading(const Vector3D &changeUp);
-  void Rotate(Matrix &m);
+  void Transform(Matrix &m);
   void Translate(Vector3D &v);
 
   // Temp list operations
   void clearTemp();
-  void RotateTemp(const Matrix &m);
+  void TransformTemp(const Matrix &m);
   void TranslateTemp(const Vector3D &v);
   void RotateTempToHeading();
 
@@ -94,6 +103,16 @@ public:
   void TransformToPixel(Matrix &m);
   std::vector<Poly> GetRenderList() const;
   std::vector<Poly> GetTemp() const;
+  // Append pointers to renderable polys in temp to avoid copies
+  void AppendRenderPointers(std::vector<Poly *> &out);
+  // Expose temp size for pre-reserving render pointer capacity
+  size_t TempSize() const { return temp.size(); }
+
+  // Geometry bounds helpers
+  // Returns axis-aligned bounds in object local space. Returns false if empty.
+  bool GetLocalBounds(Point3D &outMin, Point3D &outMax) const;
+  // Returns axis-aligned bounds in world space (local bounds offset by position)
+  bool GetWorldBounds(Point3D &outMin, Point3D &outMax) const;
 
   void projectileInit(const Vector3D &head, const Vector3D &pos = Vector3D(0, 0, 0));
 

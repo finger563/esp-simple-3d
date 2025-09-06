@@ -12,11 +12,12 @@ private:
   Vector3D right;
 
   Vector3D position;
+  Matrix viewMatrix; // cached world-to-camera transform
+
+  void UpdateViewMatrix();
 
 public:
   Camera();
-
-  void Normalize();
 
   void ComputeAxes();
 
@@ -25,6 +26,11 @@ public:
   void Rotate(const float _t, const float _p);
 
   Matrix GetWorldToCamera();
+  const Matrix &GetViewMatrix() const { return viewMatrix; }
+  // Set camera transform directly (world-to-camera) and recompute basis/position
+  void SetViewMatrix(const Matrix &m);
+  // Apply an arbitrary transform to the camera (in world space): newView = view * T
+  void ApplyTransform(const Matrix &t);
 
   float GetPhi() const { return phi; }
   float GetTheta() const { return theta; }
@@ -41,6 +47,10 @@ public:
 
   Point3D GetRight() const;
   void SetRight(const float x, const float y, const float z);
+
+  // Set camera to look from eye toward target with given world-up
+  void LookAt(const Point3D &eye, const Point3D &target,
+              const Vector3D &worldUp = Vector3D(0, 1, 0));
 
   bool operator==(const Camera &c) {
     if (phi != c.GetPhi())

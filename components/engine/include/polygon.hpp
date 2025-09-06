@@ -101,6 +101,12 @@ public:
     r = _r;
     g = _g;
     b = _b;
+    // set the color for all vertices
+    for (int i = 0; i < numVertices; ++i) {
+      v[i].r = _r;
+      v[i].g = _g;
+      v[i].b = _b;
+    }
   }
   void SetVertexColors(const float _r1, const float _g1, const float _b1, const float _r2,
                        const float _g2, const float _b2, const float _r3, const float _g3,
@@ -138,8 +144,8 @@ public:
   // Rasterization Methods
   void Rasterize();
   void Rasterize(const int y);
-  void RasterizeFast();
   void RasterizeFast(const int y);
+  void RasterizeFull();
 
   // Helper Functions
   void YSort(Vertex *temp);

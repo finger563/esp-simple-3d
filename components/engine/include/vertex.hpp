@@ -78,9 +78,16 @@ public:
   void HomogeneousDivide();
 
   // Operator Overloads
-  Vertex &operator=(const Vertex &rhs);
-  bool operator==(const Vertex &rhs) const;
-  bool operator!=(const Vertex &rhs) const;
+  Vertex &operator=(const Vertex &rhs) = default;
+  bool operator==(const Vertex &rhs) const {
+    for (int i = 0; i < NUM_VERTEX_DATA; i++) {
+      if (data[i] != rhs.data[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  bool operator!=(const Vertex &rhs) const = default;
   float &operator[](const int i) { return data[i]; }
   float operator[](const int i) const { return data[i]; }
   Vertex operator-(const Vertex &rhs) const;

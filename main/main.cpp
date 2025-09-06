@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <thread>
 
 #include "esp-box.hpp"
@@ -12,16 +14,18 @@ using hal = espp::EspBox;
 #include "object.hpp"
 #include "world.hpp"
 
+#include "asset_loader.hpp"
 #include "file_system.hpp"
 #include "jpeg.hpp"
+#include "png.hpp"
+#include <filesystem>
 
 static constexpr size_t MAX_NAME_LEN = 32;
 
 using namespace std::chrono_literals;
 using DisplayDriver = hal::DisplayDriver;
 
-static espp::Logger logger({.tag = "Simple3d", .level = espp::Logger::Verbosity::DEBUG});
-static bool display_z_buffer = false;
+static espp::Logger logger({.tag = "Simple3d", .level = espp::Logger::Verbosity::INFO});
 
 // frame buffers for decoding into
 static uint8_t *fb0 = nullptr;
@@ -29,6 +33,11 @@ static uint8_t *fb1 = nullptr;
 // DRAM for actual vram (used by SPI to send to LCD)
 static uint8_t *vram0 = nullptr;
 static uint8_t *vram1 = nullptr;
+
+// object index
+static int object_index = 0;
+static std::vector<Object> modelObjs;
+static std::mutex object_mutex;
 
 // video
 static std::unique_ptr<espp::Task> video_task_{nullptr};
@@ -47,13 +56,13 @@ static constexpr int num_rows_in_vram = 50;
 static constexpr size_t vram_size = hal::lcd_width() * num_rows_in_vram * sizeof(hal::Pixel);
 static constexpr size_t fb_size = hal::lcd_width() * hal::lcd_height() * sizeof(hal::Pixel);
 
-Camera tempeye;
 static Matrix worldToCamera = Matrix();
 static Matrix perspectiveProjection = Matrix();
 static Matrix projectionToPixel = Matrix();
 static std::vector<Object> objectlist;  // used for the static world objects
 static std::vector<Object> dynamiclist; // used for dynamic objects received from server
 static std::vector<Poly> renderlist;    // aggregate polygon list to be rendered
+static std::vector<Poly *> renderptrs;  // pointer list for zero-copy render
 
 uint16_t *defaulttexture = nullptr;
 size_t defaulttexture_width = 0;
@@ -74,6 +83,45 @@ size_t wood_tex_height = 0;
 uint16_t *ceiling_tex = nullptr;
 size_t ceiling_tex_width = 0;
 size_t ceiling_tex_height = 0;
+
+struct Bounds {
+  float minx = std::numeric_limits<float>::infinity();
+  float miny = std::numeric_limits<float>::infinity();
+  float minz = std::numeric_limits<float>::infinity();
+  float maxx = -std::numeric_limits<float>::infinity();
+  float maxy = -std::numeric_limits<float>::infinity();
+  float maxz = -std::numeric_limits<float>::infinity();
+  bool is_valid() const { return minx <= maxx && miny <= maxy && minz <= maxz; }
+  bool is_set() const {
+    return minx != std::numeric_limits<float>::infinity() &&
+           miny != std::numeric_limits<float>::infinity() &&
+           minz != std::numeric_limits<float>::infinity() &&
+           maxx != -std::numeric_limits<float>::infinity() &&
+           maxy != -std::numeric_limits<float>::infinity() &&
+           maxz != -std::numeric_limits<float>::infinity();
+  }
+};
+
+Bounds get_bounds() {
+  Bounds bounds;
+  for (auto &obj : objectlist) {
+    Point3D mn, mx;
+    if (obj.GetWorldBounds(mn, mx)) {
+      bounds.minx = std::min(bounds.minx, mn.x);
+      bounds.miny = std::min(bounds.miny, mn.y);
+      bounds.minz = std::min(bounds.minz, mn.z);
+      bounds.maxx = std::max(bounds.maxx, mx.x);
+      bounds.maxy = std::max(bounds.maxy, mx.y);
+      bounds.maxz = std::max(bounds.maxz, mx.z);
+    }
+    // Only care about the first object, not the axes
+    break;
+  }
+  fmt::print("World bounds: min({:.2f}, {:.2f}, {:.2f}), max({:.2f}, {:.2f}, {:.2f})\n",
+             bounds.minx, bounds.miny, bounds.minz, bounds.maxx, bounds.maxy, bounds.maxz);
+  return bounds;
+};
+static Bounds bounds;
 
 enum ObjectType { // These are the types of dynamic objects which need to be tracked by the server
   PLAYER,
@@ -210,11 +258,8 @@ public:
 
   std::vector<Object_s> Objects() { return objects; }
 
-  Camera Eye() const { return eye; }
-  void Eye(const Camera &e) {
-    eye = e;
-    tempeye = eye;
-  }
+  Camera &Eye() { return eye; }
+  void Eye(const Camera &e) { eye = e; }
 
   World &Level() { return level; }
   void Level(const World &l) {
@@ -285,6 +330,7 @@ extern "C" void app_main(void) {
   auto root_path = fs.get_root_path();
   namespace stdfs = std::filesystem;
   const stdfs::path texture_dir = root_path / stdfs::path{"textures"};
+  const stdfs::path models_dir = root_path / stdfs::path{"models"};
 
   logger.info("Partition label: {}", partition_label);
   logger.info("Mount point:     {}", mount_point);
@@ -300,8 +346,10 @@ extern "C" void app_main(void) {
   // check that it exists - IT SHOULDN'T
   std::error_code ec;
   logger.info("Directory {} exists: {}", texture_dir.string(), stdfs::exists(texture_dir, ec));
+  logger.info("Models dir {} exists: {}", models_dir.string(), stdfs::exists(models_dir, ec));
 
-  Jpeg decoder;
+  static Jpeg decoder;
+  static Png png_decoder;
 
   struct TexInfo {
     uint16_t **ptr;
@@ -403,13 +451,208 @@ extern "C" void app_main(void) {
     return;
   }
 
+  auto button_callback = [&](const auto &event) {
+    if (event.active) {
+      // increment the object index and update the render list
+      std::lock_guard<std::mutex> lock(object_mutex);
+      object_index++;
+      if (object_index >= modelObjs.size()) {
+        object_index = 0; // wrap around
+      }
+      // clear the render list
+      objectlist.clear();
+      // add the selected object to the render list
+      if (object_index < modelObjs.size()) {
+        objectlist.emplace_back(modelObjs[object_index]);
+
+        bounds = get_bounds();
+        // set the size of the axes to be slightly larger than the bounds of the object
+        float axis_size = 0.0f;
+        if (bounds.is_set()) {
+          axis_size = std::max(bounds.maxx - bounds.minx,
+                               std::max(bounds.maxy - bounds.miny, bounds.maxz - bounds.minz)) *
+                      0.5f;
+        } else {
+          axis_size = 1.0f; // default size if bounds are not set
+        }
+
+        // Add world axes helper for visualization at origin
+        Object axes;
+        axes.GenerateAxes(axis_size * 1.5f, axis_size * 0.05f); // axes with size and thickness
+
+        objectlist.emplace_back(axes); // add axes for reference
+        logger.info("Selected object: {}", object_index);
+      } else {
+        logger.warn("No object selected, using default world");
+        player->Level(1); // load default level if no model found
+      }
+    }
+  };
+
+  // initialize touch
+  if (!hw.initialize_boot_button(button_callback)) {
+    logger.error("Could not initialize button");
+    return;
+  }
+
   // clear the screen
   logger.info("Clearing screen");
   clear_screen();
 
   // make the player
   player = std::make_unique<Player_c>(Player_s("Player1", 1));
-  player->Level(1); // load level 1
+  // Try to load a model from /models. If present, replace world with that object.
+  {
+    asset::TextureDecodeFn fileDecoder = [&](const std::string &path, uint16_t *&outPtr, int &w,
+                                             int &h) -> bool {
+      logger.info("Decoding texture from file {}", path);
+      // get the file extension
+      std::error_code ec;
+      if (!stdfs::exists(path, ec)) {
+        logger.error("Texture file {} does not exist", path);
+        return false;
+      }
+      std::string ext = stdfs::path(path).extension();
+      std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+      if (ext != ".png" && ext != ".jpg" && ext != ".jpeg") {
+        logger.error("Unsupported image format: {}", ext);
+        return false;
+      }
+      // Try PNG first, then JPEG
+      bool ok = false;
+      if (ext == ".png") {
+        ok = png_decoder.decode(path.c_str());
+        if (ok) {
+          w = png_decoder.get_width();
+          h = png_decoder.get_height();
+          logger.info("Decoded PNG texture {}x{}", w, h);
+          outPtr = (uint16_t *)heap_caps_malloc(w * h * sizeof(uint16_t),
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+          if (!outPtr)
+            return false;
+          std::memcpy(outPtr, png_decoder.get_decoded_data(), w * h * sizeof(uint16_t));
+          return true;
+        }
+      }
+      if (ext == ".jpg" || ext == ".jpeg") {
+        if (!decoder.decode(path.c_str()))
+          return false;
+        w = decoder.get_width();
+        h = decoder.get_height();
+        logger.info("Decoded JPEG texture {}x{}", w, h);
+        outPtr = (uint16_t *)heap_caps_malloc(w * h * sizeof(uint16_t),
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!outPtr)
+          return false;
+        std::memcpy(outPtr, decoder.get_decoded_data(), w * h * sizeof(uint16_t));
+        return true;
+      }
+      return false;
+    };
+    asset::TextureDecodeBytesFn bytesDecoder = [&](const uint8_t *bytes, size_t len,
+                                                   const std::string &mime, uint16_t *&outPtr,
+                                                   int &w, int &h) -> bool {
+      logger.info("Decoding texture by bytes of len {} with mimetype {}", len, mime);
+      if (mime != "image/png" && mime != "image/jpeg") {
+        logger.error("Unsupported image format: {}", mime);
+        return false;
+      }
+      // handle png (using libpng)
+      if (mime == "image/png") {
+        if (!png_decoder.decode_memory(bytes, len))
+          return false;
+        w = png_decoder.get_width();
+        h = png_decoder.get_height();
+        logger.info("Decoded PNG texture {}x{}", w, h);
+        outPtr = (uint16_t *)heap_caps_malloc(w * h * sizeof(uint16_t),
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!outPtr)
+          return false;
+        std::memcpy(outPtr, png_decoder.get_decoded_data(), w * h * sizeof(uint16_t));
+      }
+      // handle jpeg
+      if (mime == "image/jpeg") {
+        if (!decoder.decode_memory(bytes, len))
+          return false;
+        w = decoder.get_width();
+        h = decoder.get_height();
+        logger.info("Decoded JPEG {}x{} texture", w, h);
+        outPtr = (uint16_t *)heap_caps_malloc(w * h * sizeof(uint16_t),
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!outPtr)
+          return false;
+        std::memcpy(outPtr, decoder.get_decoded_data(), w * h * sizeof(uint16_t));
+      }
+      return true;
+    };
+    bool loaded = false;
+
+    // Prefer GLB
+    for (auto &entry : std::filesystem::directory_iterator(models_dir, ec)) {
+      auto path = entry.path();
+      if (!entry.is_regular_file())
+        continue;
+      auto ext = path.extension().string();
+      if (ext == ".glb") {
+        logger.info("Trying to load GLB file {}", path.string());
+        MaterialInfo mi;
+        modelObjs.push_back(Object());
+        loaded = asset::LoadGLB(path.string(), modelObjs[modelObjs.size() - 1], &mi, fileDecoder,
+                                bytesDecoder);
+        if (loaded) {
+          logger.info("Successfully loaded GLB model from {}", path.string());
+        } else {
+          logger.warn("Failed to load.");
+        }
+      }
+    }
+    // Fallback to OBJ
+    if (!loaded) {
+      for (auto &entry : std::filesystem::directory_iterator(models_dir, ec)) {
+        auto path = entry.path();
+        if (!entry.is_regular_file())
+          continue;
+        auto ext = path.extension().string();
+        if (ext == ".obj") {
+          logger.info("Trying to load OBJ file {}", path.string());
+          MaterialInfo mi;
+          modelObjs.push_back(Object());
+          loaded = asset::LoadOBJ(path.string(), modelObjs[modelObjs.size() - 1], &mi, fileDecoder);
+          if (loaded) {
+            logger.info("Successfully loaded OBJ model from {}", path.string());
+          } else {
+            logger.warn("Failed to load.");
+          }
+        }
+      }
+    }
+    if (loaded) {
+      logger.info("Loaded model from {}", models_dir.string());
+      // Replace world with this single object
+      objectlist.clear();
+      objectlist.emplace_back(modelObjs[object_index]);
+
+      bounds = get_bounds();
+      // set the size of the axes to be slightly larger than the bounds of the object
+      float axis_size = 0.0f;
+      if (bounds.is_set()) {
+        axis_size = std::max(bounds.maxx - bounds.minx,
+                             std::max(bounds.maxy - bounds.miny, bounds.maxz - bounds.minz)) *
+                    0.5f;
+      } else {
+        axis_size = 1.0f; // default size if bounds are not set
+      }
+
+      // Add world axes helper for visualization at origin
+      Object axes;
+      axes.GenerateAxes(axis_size * 1.5f, axis_size * 0.05f); // axes with size and thickness
+
+      objectlist.emplace_back(axes); // add axes for reference
+
+    } else {
+      player->Level(1); // load default level if no model found
+    }
+  }
 
   // now initialize the engine
 
@@ -427,47 +670,109 @@ extern "C" void app_main(void) {
 
   // We use ROW vector notation
 
-  perspectiveProjection.data[3][2] = -1; // translate z
-  perspectiveProjection.data[2][3] = 1;  // project z
+  // Build perspective projection from FoV, aspect, near, far for row-vector convention
+  float fovY = 90.0f * (float)M_PI / 180.0f; // radians
+  float aspect = (float)SIZE_X / (float)SIZE_Y;
+  float zn = 0.01f;
+  float zf = 1000.0f;
+  float f = 1.0f / std::tan(fovY * 0.5f);
+  perspectiveProjection.SetIdentity();
+  // Row-vector projection (x', y', z', w') = (x, y, z, w) * P
+  // P maps to NDC: x_ndc = x * f/aspect / w, y_ndc = y * f / w, z_ndc = (zf/(zf-zn)) +
+  // (-zn*zf/(zf-zn))/w, w' = z
+  //
+  // NDC coordinates are in the range [-1, 1] for x and y, and [0, 1] for z
+  // after perspective divide
+  //
+  // We want to invert the NDC to better match screen coordinates, so we invert
+  // the x and y axes in the projection matrix
+  perspectiveProjection[0][0] = -f / aspect;
+  perspectiveProjection[1][1] = -f;
+  perspectiveProjection[2][2] = zf / (zf - zn);
+  perspectiveProjection[2][3] = 1.0f;                   // w' = z
+  perspectiveProjection[3][2] = (-zn * zf) / (zf - zn); // z offset term
 
-  projectionToPixel.data[3][0] = (double)SIZE_X * 0.5; // translate x
-  projectionToPixel.data[3][1] = (double)SIZE_Y * 0.5; // translate y
-  projectionToPixel.data[0][0] = (double)SIZE_X * 0.5; // scale x
-  projectionToPixel.data[1][1] = (double)SIZE_Y * 0.5; // scale y
+  // Viewport transform to pixel coordinates
+  // P maps from NDC to pixel coordinates: x_pixel = (x_ndc + 1) * SIZE_X/2, y_pixel = (y_ndc + 1) *
+  // SIZE_Y/2
+  projectionToPixel.SetIdentity();
+  projectionToPixel[0][0] = SIZE_X * 0.5f; // scale x
+  projectionToPixel[1][1] = SIZE_Y * 0.5f; // scale y
+  projectionToPixel[3][0] = SIZE_X * 0.5f; // translate x
+  projectionToPixel[3][1] = SIZE_Y * 0.5f; // translate y
 
   // make a simple task that prints "Hello World!" every second
-  espp::Task task({.callback = [&](auto &m, auto &cv) -> bool {
-                     static int fb_index =
-                         0; // frame buffer index, used to swap between fb0 and fb1
-                     // select the frame buffer
-                     uint16_t *fb_ptr =
-                         (uint16_t *)((uint32_t)fb0 * (fb_index ^ 0x01) + (uint32_t)fb0 * fb_index);
-                     // swap the frame buffer index
-                     fb_index = fb_index ^ 0x01;
-                     // render the scene
-                     updatePixels(fb_ptr);
-                     // push the frame to the video task
-                     push_frame(fb_ptr);
-                     logger.info("Pushed frame to video task");
-                     // we don't want to stop the task, so return false
-                     return false;
-                   },
-                   .task_config = {
-                       .name = "Hello World",
-                       .stack_size_bytes = 4096,
-                   }});
+  espp::Task task(
+      {.callback = [&](auto &m, auto &cv) -> bool {
+         std::lock_guard<std::mutex> lock(object_mutex);
+         static int fb_index = 0; // frame buffer index, used to swap between fb0 and fb1
+         // select the frame buffer
+         uint16_t *fb_ptr =
+             (uint16_t *)((uint32_t)fb0 * (fb_index ^ 0x01) + (uint32_t)fb0 * fb_index);
+         // swap the frame buffer index
+         fb_index = fb_index ^ 0x01;
+         // Move camera to orbit around the loaded object and look at it
+         static auto start = esp_timer_get_time();
+         uint64_t now = esp_timer_get_time();
+         float t = (now - start) / 1'000'000.0f;
+         // Cylindrical orbit: compute planar extents (XZ) and center
+         Point3D target(0, 0, 0);
+         float extentX = 0.0f, extentY = 0.0f, extentZ = 0.0f;
+         if (bounds.is_set()) {
+           // NOTE: we could compute the center of the object, but better to use
+           // the model's origin for now, since it may not be centered in the
+           // bounds
+           //
+           // target = Point3D((bounds.minx + bounds.maxx) * 0.5f,
+           //                  (bounds.miny + bounds.maxy) * 0.5f,
+           //                  (bounds.minz + bounds.maxz) * 0.5f);
+           extentX = bounds.maxx; // std::max(bounds.maxx, std::abs(bounds.minx));
+           extentY = std::max(bounds.maxy, std::abs(bounds.miny));
+           extentZ = bounds.maxz; // std::max(bounds.maxz, std::abs(bounds.minz));
+         } else {
+           logger.warn(
+               "Could not determine world bounds for object, using default camera position");
+         }
+         float radius = std::max(extentX, extentZ);
+         float orbitRadius = radius * 1.5f; // Not too close, or it will be slower
+         float ang = t * 0.5f;
+         float camX = target.x + std::cos(ang) * orbitRadius;
+         float camZ = target.z + std::sin(ang) * orbitRadius;
+         float camY = target.y + std::max(extentY * 0.8f, 1.0f);
+         Camera &eye = player->Eye();
+         auto eyePos = Point3D(camX, camY, camZ);
+
+         // Look from orbit position to the target center using explicit LookAt
+         eye.LookAt(eyePos, target, Vector3D(0, 1, 0));
+
+         static int frame_count = 0;
+         frame_count++;
+
+         // render the scene
+         updatePixels(fb_ptr);
+         // push the frame to the video task
+         push_frame(fb_ptr);
+         float FPS = frame_count / t;
+         logger.debug("FPS = {:0.02f}", FPS);
+         // we don't want to stop the task, so return false
+         return false;
+       },
+       .task_config = {
+           .name = "Render",
+           .stack_size_bytes = 4096,
+           .priority = 10,
+       }});
   task.start();
 
+  // TODO[William]: Setup touch input processing
+
   while (true) {
-    // TODO[William]: Input processing
     std::this_thread::sleep_for(1s);
   }
 }
 
 // copy an image data to texture buffer, this updates what is rendered
 void updatePixels(uint16_t *dst) {
-  static uint16_t color = 0;
-
   if (!dst)
     return;
 
@@ -481,7 +786,10 @@ void updatePixels(uint16_t *dst) {
     }
   }
 
+  worldToCamera = player->Eye().GetWorldToCamera();
+
   renderlist.clear();
+  renderptrs.clear();
 
   dynamiclist.clear();
   std::vector<Object_s> dynamic = player->Objects();
@@ -503,55 +811,51 @@ void updatePixels(uint16_t *dst) {
 
   for (auto &it : dynamiclist) {
     it.updateList();
-    Vector3D tmppos = it.GetPosition() - player->Eye().GetPosition();
-    it.TranslateTemp(tmppos);
-    worldToCamera.SetIdentity();
-    worldToCamera = worldToCamera * player->Eye().GetWorldToCamera();
     it.TransformToCamera(worldToCamera);
     it.TransformToPerspective(perspectiveProjection);
-    std::vector<Poly> templist = it.GetRenderList();
-    renderlist.insert(renderlist.end(), templist.begin(), templist.end());
+    // zero-copy append
+    it.AppendRenderPointers(renderptrs);
   }
 
   for (auto &it : objectlist) {
     it.updateList();
-    Vector3D tmppos = it.GetPosition() - player->Eye().GetPosition();
-    it.TranslateTemp(tmppos);
-    worldToCamera.SetIdentity();
-    worldToCamera = worldToCamera * player->Eye().GetWorldToCamera();
     it.TransformToCamera(worldToCamera);
     it.TransformToPerspective(perspectiveProjection);
-    std::vector<Poly> templist = it.GetRenderList();
-    renderlist.insert(renderlist.end(), templist.begin(), templist.end());
+    // zero-copy append
+    it.AppendRenderPointers(renderptrs);
   }
 
-  for (auto &it : renderlist) {
-    it.Clip();
-    it.HomogeneousDivide();
-    it.TransformToPixel(projectionToPixel);
-    it.SetupRasterization(); // for speed optimization
+  logger.debug("Rendering {} primitives", renderptrs.size());
+
+#define ENABLE_FAST_RASTERIZATION 0
+
+  // Prepare and rasterize using pointers to avoid copies
+  for (auto *it : renderptrs) {
+    // Early clip reject (simple screen-space bounds after homogeneous divide)
+    it->Clip();
+    it->HomogeneousDivide();
+    // Quick bounds test in NDC
+    float minx = it->MinX();
+    float maxx = it->MaxX();
+    float miny = it->MinY();
+    float maxy = it->MaxY();
+    if (maxx < -1.0f || minx > 1.0f || maxy < -1.0f || miny > 1.0f) {
+      continue; // fully outside viewport
+    }
+    it->TransformToPixel(projectionToPixel);
+    it->SetupRasterization();
+#if !ENABLE_FAST_RASTERIZATION
+    it->RasterizeFull();
+#endif
   }
 
-  for (int y = SIZE_Y - 1; y >= 0; y--) {
-    for (auto &it : renderlist) {
-      it.RasterizeFast(y);
+#if ENABLE_FAST_RASTERIZATION
+  for (int y = 0; y < SIZE_Y; y++) {
+    for (auto *it : renderptrs) {
+      it->RasterizeFast(y);
     }
   }
-
-  if (display_z_buffer) {
-    // only used if we display the z-buffer
-    uint16_t *ptr = (uint16_t *)dst;
-
-    // display the z buffer
-    for (size_t i = 0; i < IMAGE_HEIGHT; ++i) {
-      for (size_t j = 0; j < IMAGE_WIDTH; ++j) {
-        // copy 4 bytes at once
-        *ptr = ((int)(z_buffer[j + i * SIZE_X]) << 16) + ((int)(z_buffer[j + i * SIZE_X]) << 8) +
-               (int)(z_buffer[j + i * SIZE_X]);
-        ++ptr;
-      }
-    }
-  }
+#endif
 }
 
 /////////////////////////////

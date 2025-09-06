@@ -1,10 +1,12 @@
 #include "triangle.hpp"
 
 #include "main.hpp"
+#include "render_layout.hpp"
 #include <cmath>
+#include <cstdint>
 
-extern float z_buffer[SIZE_X * SIZE_Y];
-extern short display_buffer[SIZE_X * SIZE_Y];
+extern float *z_buffer;
+extern uint16_t *display_buffer;
 
 // Used for rotating the polygons in an object
 void Triangle::Rotate(const Matrix &m) {
@@ -229,10 +231,15 @@ void Triangle::DrawFilled(void) {
     for (int y = s1.y; y >= s3.y; y--) {
       dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
       zi = sz;
+      float *zrow = z_buffer + y * SIZE_X;
+      uint16_t *drow = display_buffer + y * SIZE_X;
       for (int x = sx; x <= ex; x++) {
-        if (zi > z_buffer[x + y * SIZE_X]) {
-          z_buffer[x + y * SIZE_X] = zi;
-          display_buffer[x + y * SIZE_X] = color;
+        float z = 1.0f / zi;
+        // if (zi > zrow[x]) {
+        //   zrow[x] = zi;
+        if (z < zrow[x]) {
+          zrow[x] = z;
+          drow[x] = color;
         }
         zi += dzx;
       }
@@ -246,10 +253,15 @@ void Triangle::DrawFilled(void) {
     for (int y = s1.y; y >= s3.y; y--) {
       dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
       zi = sz;
+      float *zrow = z_buffer + y * SIZE_X;
+      uint16_t *drow = display_buffer + y * SIZE_X;
       for (int x = sx; x <= ex; x++) {
-        if (zi > z_buffer[x + y * SIZE_X]) {
-          z_buffer[x + y * SIZE_X] = zi;
-          display_buffer[x + y * SIZE_X] = color;
+        float z = 1.0f / zi;
+        // if (zi > zrow[x]) {
+        //   zrow[x] = zi;
+        if (z < zrow[x]) {
+          zrow[x] = z;
+          drow[x] = color;
         }
         zi += dzx;
       }
@@ -263,10 +275,15 @@ void Triangle::DrawFilled(void) {
     for (int y = s1.y; y >= s3.y; y--) {
       dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
       zi = sz;
+      float *zrow = z_buffer + y * SIZE_X;
+      uint16_t *drow = display_buffer + y * SIZE_X;
       for (int x = sx; x <= ex; x++) {
-        if (zi > z_buffer[x + y * SIZE_X]) {
-          z_buffer[x + y * SIZE_X] = zi;
-          display_buffer[x + y * SIZE_X] = color;
+        float z = 1.0f / zi;
+        // if (zi > zrow[x]) {
+        //   zrow[x] = zi;
+        if (z < zrow[x]) {
+          zrow[x] = z;
+          drow[x] = color;
         }
         zi += dzx;
       }
@@ -280,10 +297,15 @@ void Triangle::DrawFilled(void) {
     for (int y = s1.y; y >= s3.y; y--) {
       dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
       zi = sz;
+      float *zrow = z_buffer + y * SIZE_X;
+      uint16_t *drow = display_buffer + y * SIZE_X;
       for (int x = sx; x <= ex; x++) {
-        if (zi > z_buffer[x + y * SIZE_X]) {
-          z_buffer[x + y * SIZE_X] = zi;
-          display_buffer[x + y * SIZE_X] = color;
+        // if (zi > zrow[x]) {
+        //   zrow[x] = zi;
+        float z = 1.0f / zi;
+        if (z < zrow[x]) {
+          zrow[x] = z;
+          drow[x] = color;
         }
         zi += dzx;
       }
@@ -297,10 +319,15 @@ void Triangle::DrawFilled(void) {
     for (int y = s1.y; y >= s2.y; y--) {
       dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
       zi = sz;
+      float *zrow = z_buffer + y * SIZE_X;
+      uint16_t *drow = display_buffer + y * SIZE_X;
       for (int x = sx; x <= ex; x++) {
-        if (zi > z_buffer[x + y * SIZE_X]) {
-          z_buffer[x + y * SIZE_X] = zi;
-          display_buffer[x + y * SIZE_X] = color;
+        // if (zi > zrow[x]) {
+        //   zrow[x] = zi;
+        float z = 1.0f / zi;
+        if (z < zrow[x]) {
+          zrow[x] = z;
+          drow[x] = color;
         }
         zi += dzx;
       }
@@ -314,10 +341,15 @@ void Triangle::DrawFilled(void) {
     for (int y = s4.y; y >= s3.y; y--) {
       dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
       zi = sz;
+      float *zrow = z_buffer + y * SIZE_X;
+      uint16_t *drow = display_buffer + y * SIZE_X;
       for (int x = sx; x <= ex; x++) {
-        if (zi > z_buffer[x + y * SIZE_X]) {
-          z_buffer[x + y * SIZE_X] = zi;
-          display_buffer[x + y * SIZE_X] = color;
+        // if (zi > zrow[x]) {
+        //   zrow[x] = zi;
+        float z = 1.0f / zi;
+        if (z < zrow[x]) {
+          zrow[x] = z;
+          drow[x] = color;
         }
         zi += dzx;
       }
@@ -331,10 +363,15 @@ void Triangle::DrawFilled(void) {
     for (int y = s1.y; y >= s2.y; y--) {
       dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
       zi = sz;
+      float *zrow = z_buffer + y * SIZE_X;
+      uint16_t *drow = display_buffer + y * SIZE_X;
       for (int x = sx; x <= ex; x++) {
-        if (zi > z_buffer[x + y * SIZE_X]) {
-          z_buffer[x + y * SIZE_X] = zi;
-          display_buffer[x + y * SIZE_X] = color;
+        // if (zi > zrow[x]) {
+        //   zrow[x] = zi;
+        float z = 1.0f / zi;
+        if (z < zrow[x]) {
+          zrow[x] = z;
+          drow[x] = color;
         }
         zi += dzx;
       }
@@ -348,10 +385,15 @@ void Triangle::DrawFilled(void) {
     for (int y = s4.y; y >= s3.y; y--) {
       dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
       zi = sz;
+      float *zrow = z_buffer + y * SIZE_X;
+      uint16_t *drow = display_buffer + y * SIZE_X;
       for (int x = sx; x <= ex; x++) {
-        if (zi > z_buffer[x + y * SIZE_X]) {
-          z_buffer[x + y * SIZE_X] = zi;
-          display_buffer[x + y * SIZE_X] = color;
+        // if (zi > zrow[x]) {
+        //   zrow[x] = zi;
+        float z = 1.0f / zi;
+        if (z < zrow[x]) {
+          zrow[x] = z;
+          drow[x] = color;
         }
         zi += dzx;
       }
@@ -439,17 +481,33 @@ void Triangle::DrawFilledZbuffer(const int y) {
     break;
   }
 
-  dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
-  zi = sz;
-  int x = sx;
-  zi += (x - sx) * dzx;
+  // Use RenderPack for per-pixel interpolation across the scanline
+  renderlayout::RenderPack<2> scan;
+  scan.x(0) = sx;
+  scan.x(1) = ex;
+  scan.ez(0) = sz;
+  scan.ez(1) = ez;
 
-  for (x = sx; x <= ex; x++) {
-    if (zi > z_buffer[x + y * SIZE_X]) {
-      z_buffer[x + y * SIZE_X] = zi;
+  int startX = static_cast<int>(std::ceil(std::fmin(sx, ex)));
+  int endX = static_cast<int>(std::floor(std::fmax(sx, ex)));
+  if (endX < 0 || startX >= SIZE_X)
+    return;
+  if (startX < 0)
+    startX = 0;
+  if (endX >= SIZE_X)
+    endX = SIZE_X - 1;
+  const float invDen = 1.0f / (scan.x(0) - scan.x(1));
+
+  for (int x = startX; x <= endX; ++x) {
+    const float t = (scan.x(0) - static_cast<float>(x)) * invDen;
+    zi = scan.ez(0) + (scan.ez(1) - scan.ez(0)) * t;
+    // if (zi > z_buffer[x + y * SIZE_X]) {
+    //   z_buffer[x + y * SIZE_X] = zi;
+    float z = 1.0f / sz;
+    if (z < z_buffer[x + y * SIZE_X]) {
+      z_buffer[x + y * SIZE_X] = z;
       display_buffer[x + y * SIZE_X] = color;
     }
-    zi += dzx;
   }
 }
 
@@ -565,55 +623,56 @@ void Triangle::DrawTexturedZbuffer(const int y) {
     break;
   }
 
-  dzx = (1 / ez - 1 / sz) / ((1 / ez - 1 / sz) * ex / ez - (ex / ez - sx / sz) / ez);
-  float zi = sz;
+  // Use RenderPack for per-pixel interpolation across the scanline
+  renderlayout::RenderPack<2> scan;
+  scan.x(0) = sx;
+  scan.x(1) = ex;
+  scan.ez(0) = sz;
+  scan.ez(1) = ez;
+  scan.u(0) = stu;
+  scan.u(1) = etu;
+  scan.v(0) = stv;
+  scan.v(1) = etv;
 
   if (ez < 0 && sz < 0) // if this line starts and ends behind viewport
     return;
 
-  float tx = stu, ty = stv;
-  float uscale, vscale;
-  uscale = (etu - stu) / (ex / ez - sx / sz);
-  vscale = (etv - stv) / (ex / ez - sx / sz);
-  int x = sx;
-  float startx = sx / sz;
-  zi += (x - sx) * dzx;
-  if (sx < 0) {
-    zi += dzx * (-sx);
-    sx = 0;
-  } else if (sx >= SIZE_X) {
+  int startX = static_cast<int>(std::ceil(std::fmin(sx, ex)));
+  int endX = static_cast<int>(std::floor(std::fmax(sx, ex)));
+  if (endX < 0 || startX >= SIZE_X)
     return;
-  }
+  if (startX < 0)
+    startX = 0;
+  if (endX >= SIZE_X)
+    endX = SIZE_X - 1;
+  if (!std::isfinite((double)sx) || !std::isfinite((double)ex))
+    return;
 
-  if (ex >= SIZE_X) {
-    ex = SIZE_X - 1;
-  } else if (ex < 0) {
-    return;
-  }
-  if (ex != ex || sx != sx || // test for bad values (IND/INF)
-      std::fabs(sx) == std::numeric_limits<float>::infinity() ||
-      std::fabs(ex) == std::numeric_limits<float>::infinity())
-    return;
-  for (x = sx; x <= ex; x++) {
-    if (zi > z_buffer[x + y * SIZE_X]) {
-      z_buffer[x + y * SIZE_X] = zi;
-      tx = (x / zi - startx) * uscale + stu;
-      ty = (x / zi - startx) * vscale + stv;
-      int txi = static_cast<int>(tx);
-      int tyi = static_cast<int>(ty);
-      if (txi < 0)
-        txi = 0;
-      else if (txi >= texwidth)
-        txi = texwidth - 1;
-      int texheight = texwidth; // square textures assumption
-      if (tyi < 0)
-        tyi = 0;
-      else if (tyi >= texheight)
-        tyi = texheight - 1;
-      int index = txi + texwidth * tyi;
-      display_buffer[x + y * SIZE_X] = texture[index];
+  const float invDen = 1.0f / (scan.x(0) - scan.x(1));
+  for (int x = startX; x <= endX; ++x) {
+    const float t = (scan.x(0) - static_cast<float>(x)) * invDen;
+    const float zinv = scan.ez(0) + (scan.ez(1) - scan.ez(0)) * t;
+    const float z = 1.0f / zinv;
+    // if (zinv > z_buffer[x + y * SIZE_X]) {
+    //   z_buffer[x + y * SIZE_X] = zinv;
+    if (z < z_buffer[x + y * SIZE_X]) {
+      z_buffer[x + y * SIZE_X] = z;
+      float tu = (scan.u(0) + (scan.u(1) - scan.u(0)) * t);
+      float tv = (scan.v(0) + (scan.v(1) - scan.v(0)) * t);
+      // Branchless clamp to [0, texwidth-1] and [0, texheight-1] using normalized u,v
+      int u_lt0 = tu<0.0f, u_gt1 = tu> 1.0f;
+      int u_in = !(u_lt0 | u_gt1);
+      int v_lt0 = tv<0.0f, v_gt1 = tv> 1.0f;
+      int v_in = !(v_lt0 | v_gt1);
+      tu = u_in * tu + u_gt1 * 1.0f + u_lt0 * 0.0f;
+      tv = v_in * tv + v_gt1 * 1.0f + v_lt0 * 0.0f;
+      // Fixed-point 16.16 addressing
+      int32_t ufx = (int32_t)(tu * (float)(texwidth - 1) * 65536.0f);
+      int32_t vfx = (int32_t)(tv * (float)(texwidth - 1) * 65536.0f);
+      int tx = ufx >> 16;
+      int ty = vfx >> 16;
+      display_buffer[x + y * SIZE_X] = texture[tx + ty * texwidth];
     }
-    zi += dzx; // because dx > 0, we increment
   }
 }
 
@@ -775,11 +834,15 @@ void Triangle::DrawTexturedZbufferHomogeneous(const int y) {
   }
 
   float zi = sz;
+  float z = 1.0f / zi;
   int x;
   for (x = sx; x <= ex; x++) {
-    if (zi > z_buffer[x + y * SIZE_X]) {
-      z_buffer[x + y * SIZE_X] = zi;
+    if (z < z_buffer[x + y * SIZE_X]) {
+      z_buffer[x + y * SIZE_X] = z;
     }
+    // if (zi > z_buffer[x + y * SIZE_X]) {
+    //   z_buffer[x + y * SIZE_X] = zi;
+    // }
     // zi += dzx;		// because dx > 0, we increment
   }
 }
