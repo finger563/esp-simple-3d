@@ -49,16 +49,18 @@ Object::Object(Poly &poly, const unsigned short *texture, const int texWid, cons
 bool Object::updateList() {
   temp.clear();
   std::copy(master.begin(), master.end(), std::back_inserter(temp));
+  TranslateTemp(position);
   return true;
 }
 
 bool Object::updateList(const std::vector<Poly> &poly) {
   clearTemp();
   std::copy(poly.begin(), poly.end(), std::back_inserter(temp));
+  TranslateTemp(position);
   return true;
 }
 
-void Object::Rotate(Matrix &m) {
+void Object::Transform(Matrix &m) {
   for (auto &poly : master) {
     poly.Transform(m);
   }
@@ -78,16 +80,16 @@ void Object::RotateToHeading() {
   Vector3D right = normalize(Cross(up, forward));
   up = normalize(Cross(forward, right));
   Matrix m = Matrix();
-  m.data[0][0] = right.x;
-  m.data[0][1] = right.y;
-  m.data[0][2] = right.z;
-  m.data[1][0] = up.x;
-  m.data[1][1] = up.y;
-  m.data[1][2] = up.z;
-  m.data[2][0] = forward.x;
-  m.data[2][1] = forward.y;
-  m.data[2][2] = forward.z;
-  Rotate(m);
+  m[0][0] = right.x;
+  m[0][1] = right.y;
+  m[0][2] = right.z;
+  m[1][0] = up.x;
+  m[1][1] = up.y;
+  m[1][2] = up.z;
+  m[2][0] = forward.x;
+  m[2][1] = forward.y;
+  m[2][2] = forward.z;
+  Transform(m);
 }
 
 void Object::RotateToHeading(const Vector3D &changeUp) {
@@ -98,16 +100,16 @@ void Object::RotateToHeading(const Vector3D &changeUp) {
   Vector3D right = normalize(Cross(up, forward));
   up = normalize(Cross(forward, right));
   Matrix m = Matrix();
-  m.data[0][0] = right.x;
-  m.data[0][1] = right.y;
-  m.data[0][2] = right.z;
-  m.data[1][0] = up.x;
-  m.data[1][1] = up.y;
-  m.data[1][2] = up.z;
-  m.data[2][0] = forward.x;
-  m.data[2][1] = forward.y;
-  m.data[2][2] = forward.z;
-  Rotate(m);
+  m[0][0] = right.x;
+  m[0][1] = right.y;
+  m[0][2] = right.z;
+  m[1][0] = up.x;
+  m[1][1] = up.y;
+  m[1][2] = up.z;
+  m[2][0] = forward.x;
+  m[2][1] = forward.y;
+  m[2][2] = forward.z;
+  Transform(m);
 }
 
 void Object::clearTemp() {
@@ -115,7 +117,7 @@ void Object::clearTemp() {
   temp.clear();
 }
 
-void Object::RotateTemp(const Matrix &m) {
+void Object::TransformTemp(const Matrix &m) {
   for (auto &poly : temp) {
     poly.Transform(m);
   }
@@ -135,16 +137,16 @@ void Object::RotateTempToHeading() {
   Vector3D right = normalize(Cross(up, forward));
   up = normalize(Cross(forward, right));
   Matrix m = Matrix();
-  m.data[0][0] = right.x;
-  m.data[0][1] = right.y;
-  m.data[0][2] = right.z;
-  m.data[1][0] = up.x;
-  m.data[1][1] = up.y;
-  m.data[1][2] = up.z;
-  m.data[2][0] = forward.x;
-  m.data[2][1] = forward.y;
-  m.data[2][2] = forward.z;
-  RotateTemp(m);
+  m[0][0] = right.x;
+  m[0][1] = right.y;
+  m[0][2] = right.z;
+  m[1][0] = up.x;
+  m[1][1] = up.y;
+  m[1][2] = up.z;
+  m[2][0] = forward.x;
+  m[2][1] = forward.y;
+  m[2][2] = forward.z;
+  TransformTemp(m);
 }
 
 void Object::add(const Poly &poly) {
@@ -153,8 +155,6 @@ void Object::add(const Poly &poly) {
 }
 
 void Object::GenerateCube(float size) {
-  master.clear();
-
   // stores in objects master list
   master.push_back(Poly(Vertex(size, size, size, 1, 0, 0), Vertex(-size, size, size, 1, 1, 0),
                         Vertex(size, -size, size, 1, 0, 1), Vertex(), 3, Vector3D(0, 0, 1),
@@ -207,13 +207,7 @@ void Object::GenerateCube(float size) {
   for (auto &it : master) {
     it.SetTexture(tex, texWidth, texHeight);
     it.SetColor(rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX);
-#if 0
-        it.SetVertexColors(rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,
-            rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,
-            rand()/(float)RAND_MAX,rand()/(float)RAND_MAX,rand()/(float)RAND_MAX);
-#else
     it.SetVertexColors(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9);
-#endif
   }
 
   rx = size;
@@ -245,8 +239,6 @@ void Object::GenerateTetra(float size) {
           p1, p2,
           p4); //, Vector3D(0,0,-1),Point2D(texWidth,texWidth),Point2D(0,0),Point2D(0,texWidth));
 
-  master.clear();
-
   // stores in objects master list
   master.push_back(tri1);
   master.push_back(tri2);
@@ -262,7 +254,6 @@ void Object::GenerateTetra(float size) {
 
 void Object::GenerateFloor(float length, float depth) {
 
-  master.clear();
   master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(-length, 0, length, 1, 0, 0),
                         Vertex(length, 0, length, 1, 1, 0), Vertex(), 3, Vector3D(0, 1, 0),
                         TEXTURED));
@@ -290,7 +281,6 @@ void Object::GenerateCeiling(float length, float depth) {
   theta = 0;
   phi = 0;
 
-  master.clear();
   master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(-length, 0, length, 1, 0, 0),
                         Vertex(length, 0, length, 1, 1, 0), Vertex(), 3, Vector3D(0, 1, 0),
                         TEXTURED));
@@ -340,7 +330,6 @@ void Object::GenerateWall(size_t type, float length, float depth) {
     break;
   }
 
-  master.clear();
   master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(-length, 0, length, 1, 0, 0),
                         Vertex(length, 0, length, 1, 1, 0), Vertex(), 3, Vector3D(0, 1, 0),
                         TEXTURED));
@@ -360,9 +349,94 @@ void Object::GenerateWall(size_t type, float length, float depth) {
   updateList();
 }
 
-void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
-  master.clear();
+void Object::GenerateAxes(float length, float thickness) {
+  Matrix I;
+  I.SetIdentity();
+  auto make_transform = [](float tx, float ty, float tz, float rx, float ry, float rz) {
+    Matrix m;
+    m.SetIdentity();
+    Matrix rxm;
+    rxm.SetIdentity();
+    rxm[1][1] = cosf(rx);
+    rxm[1][2] = -sinf(rx);
+    rxm[2][1] = sinf(rx);
+    rxm[2][2] = cosf(rx);
+    Matrix rym;
+    rym.SetIdentity();
+    rym[0][0] = cosf(ry);
+    rym[0][2] = sinf(ry);
+    rym[2][0] = -sinf(ry);
+    rym[2][2] = cosf(ry);
+    Matrix rzm;
+    rzm.SetIdentity();
+    rzm[0][0] = cosf(rz);
+    rzm[0][1] = -sinf(rz);
+    rzm[1][0] = sinf(rz);
+    rzm[1][1] = cosf(rz);
+    Matrix r = rxm * (rym * rzm);
+    r[3][0] = tx;
+    r[3][1] = ty;
+    r[3][2] = tz;
+    return r;
+  };
 
+  // Use rectangular prisms aligned with axes, centered at origin
+  GenerateRectangularPrism(Vector3D(length / 2, thickness, thickness),
+                           Matrix::Translation(Point3D(length / 2, 0, 0)), Vector3D(1, 0, 0));
+  GenerateRectangularPrism(Vector3D(thickness, length / 2, thickness),
+                           Matrix::Translation(Point3D(0, length / 2, 0)), Vector3D(0, 1, 0));
+  GenerateRectangularPrism(Vector3D(thickness, thickness, length / 2),
+                           Matrix::Translation(Point3D(0, 0, length / 2)), Vector3D(0, 0, 1));
+  // negative axis
+  GenerateRectangularPrism(Vector3D(length / 2, thickness, thickness),
+                           Matrix::Translation(Point3D(-length / 2, 0, 0)), Vector3D(0.25, 0, 0));
+  GenerateRectangularPrism(Vector3D(thickness, length / 2, thickness),
+                           Matrix::Translation(Point3D(0, -length / 2, 0)), Vector3D(0, 0.25, 0));
+  GenerateRectangularPrism(Vector3D(thickness, thickness, length / 2),
+                           Matrix::Translation(Point3D(0, 0, -length / 2)), Vector3D(0, 0, 0.25));
+  updateList();
+}
+
+void Object::GenerateRectangularPrism(const Vector3D &halfSize, const Matrix &transform,
+                                      const Vector3D &color) {
+  const float x0 = -halfSize.x, x1 = halfSize.x;
+  const float y0 = -halfSize.y, y1 = halfSize.y;
+  const float z0 = -halfSize.z, z1 = halfSize.z;
+
+  auto add_face = [&](Vertex a, Vertex b, Vertex c, const Vector3D &n) {
+    // Apply transform to each vertex (position only)
+    a.Transform(transform);
+    b.Transform(transform);
+    c.Transform(transform);
+    a.SetColor(color.x, color.y, color.z);
+    b.SetColor(color.x, color.y, color.z);
+    c.SetColor(color.x, color.y, color.z);
+    Poly p(a, b, c, Vertex(), 3, n, COLORED);
+    p.SetDoubleSided(true);
+    master.emplace_back(p);
+  };
+
+  // +X face
+  add_face(Vertex(x1, y0, z0), Vertex(x1, y0, z1), Vertex(x1, y1, z0), Vector3D(1, 0, 0));
+  add_face(Vertex(x1, y1, z0), Vertex(x1, y0, z1), Vertex(x1, y1, z1), Vector3D(1, 0, 0));
+  // -X face
+  add_face(Vertex(x0, y0, z0), Vertex(x0, y1, z0), Vertex(x0, y0, z1), Vector3D(-1, 0, 0));
+  add_face(Vertex(x0, y1, z0), Vertex(x0, y1, z1), Vertex(x0, y0, z1), Vector3D(-1, 0, 0));
+  // +Y face
+  add_face(Vertex(x0, y1, z0), Vertex(x1, y1, z0), Vertex(x0, y1, z1), Vector3D(0, 1, 0));
+  add_face(Vertex(x1, y1, z0), Vertex(x1, y1, z1), Vertex(x0, y1, z1), Vector3D(0, 1, 0));
+  // -Y face
+  add_face(Vertex(x0, y0, z0), Vertex(x0, y0, z1), Vertex(x1, y0, z0), Vector3D(0, -1, 0));
+  add_face(Vertex(x1, y0, z0), Vertex(x0, y0, z1), Vertex(x1, y0, z1), Vector3D(0, -1, 0));
+  // +Z face
+  add_face(Vertex(x0, y0, z1), Vertex(x0, y1, z1), Vertex(x1, y0, z1), Vector3D(0, 0, 1));
+  add_face(Vertex(x1, y0, z1), Vertex(x0, y1, z1), Vertex(x1, y1, z1), Vector3D(0, 0, 1));
+  // -Z face
+  add_face(Vertex(x0, y0, z0), Vertex(x1, y0, z0), Vertex(x0, y1, z0), Vector3D(0, 0, -1));
+  add_face(Vertex(x0, y1, z0), Vertex(x1, y0, z0), Vertex(x1, y1, z0), Vector3D(0, 0, -1));
+}
+
+void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
   master.push_back(Poly(Vertex(0, 0, 4, 1), Vertex(0, 2, -2, 1), Vertex(0, -2, -2, 1), Vertex(), 3,
                         Vector3D(1, 0, 0), COLORED));
   master.begin()->SetDoubleSided(true);
@@ -466,6 +540,59 @@ std::vector<Poly> Object::GetRenderList() const {
 }
 
 std::vector<Poly> Object::GetTemp() const { return temp; }
+
+void Object::AppendRenderPointers(std::vector<Poly *> &out) {
+  for (auto &poly : temp) {
+    if ((poly.visible || poly.doublesided) &&
+        (poly.v[0].z > 0 || poly.v[1].z > 0 || poly.v[2].z > 0 || poly.v[3].z > 0)) {
+      out.push_back(&poly);
+    }
+  }
+}
+
+bool Object::GetLocalBounds(Point3D &outMin, Point3D &outMax) const {
+  if (master.empty())
+    return false;
+  bool initialized = false;
+  Point3D mn, mx;
+  for (const auto &poly : master) {
+    int n = poly.numVertices;
+    for (int i = 0; i < n; ++i) {
+      const Vertex &v = poly.v[i];
+      if (!initialized) {
+        mn = mx = Point3D(v.x, v.y, v.z);
+        initialized = true;
+      } else {
+        if (v.x < mn.x)
+          mn.x = v.x;
+        if (v.y < mn.y)
+          mn.y = v.y;
+        if (v.z < mn.z)
+          mn.z = v.z;
+        if (v.x > mx.x)
+          mx.x = v.x;
+        if (v.y > mx.y)
+          mx.y = v.y;
+        if (v.z > mx.z)
+          mx.z = v.z;
+      }
+    }
+  }
+  if (!initialized)
+    return false;
+  outMin = mn;
+  outMax = mx;
+  return true;
+}
+
+bool Object::GetWorldBounds(Point3D &outMin, Point3D &outMax) const {
+  Point3D mn, mx;
+  if (!GetLocalBounds(mn, mx))
+    return false;
+  outMin = mn + position;
+  outMax = mx + position;
+  return true;
+}
 
 ////////////////////////////////////////
 /////////////////Projectile functons////

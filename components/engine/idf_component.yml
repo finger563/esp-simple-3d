@@ -11,6 +11,5 @@ tags:
   - rendering
   - engine
 dependencies:
-  idf:
-    version: '>=5.0'
+  idf: '>=5.0'
   espp/math: '>=1.0'

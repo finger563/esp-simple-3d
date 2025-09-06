@@ -1,4 +1,6 @@
 #include "polygon.hpp"
+#include "render_layout.hpp"
+#include <cmath>
 
 // General Transformation Methods, only operate on x,y,z,w of vertices
 void Poly::Transform(const Matrix &_m) {
@@ -466,6 +468,7 @@ void Poly::Rasterize() {
     }
     if (floor(vi.x) == ceil(ev.x))
       continue;
+    uint16_t poly_color = RGB_MAKE((int)(r * 255.0f), (int)(g * 255.0f), (int)(b * 255.0f));
     for (int x = ceil(vi.x); x <= floor(ev.x); x++) {
       ai = (sv.x - x) / ((sv.x - x) - (ev.x - x));
       vi = sv + (ev - sv) * ai;
@@ -473,15 +476,15 @@ void Poly::Rasterize() {
         z_buffer[x + y * SIZE_X] = vi.ez / vi.hw;
         switch (rType) { // What are we interpolating/rendering?
         case FLAT:
-          display_buffer[x + y * SIZE_X] = RGB_MAKE((int)(r * 255), (int)(g * 255), (int)(b * 255));
+          display_buffer[x + y * SIZE_X] = poly_color;
           break;
-        case COLORED:
-          vi.r = vi.r / vi.hw; // divide all interpolated values by hw
-          vi.g = vi.g / vi.hw; // divide all interpolated values by hw
-          vi.b = vi.b / vi.hw; // divide all interpolated values by hw
+        case COLORED: {
+          float red = vi.r / vi.hw;   // divide all interpolated values by hw
+          float green = vi.g / vi.hw; // divide all interpolated values by hw
+          float blue = vi.b / vi.hw;  // divide all interpolated values by hw
           display_buffer[x + y * SIZE_X] =
-              RGB_MAKE((int)(vi.r * 255), (int)(vi.g * 255), (int)(vi.b * 255));
-          break;
+              RGB_MAKE((int)(red * 255.0f), (int)(green * 255.0f), (int)(blue * 255.0f));
+        } break;
         case SMOOTH:
           break;
         case TEXTURED:
@@ -510,8 +513,8 @@ void Poly::Rasterize(const int y) {
   float BC[POLY_MAX_VERTICES] = {}; // boundary tests against y scanline
   int line[POLY_MAX_VERTICES] = {}; // which lines cross y scanline
   int lines = 0;
-  float a1, a2, ai;  // alphas for each crossing line (there can only be 2), and for inside scanline
-  Vertex sv, ev, vi; // Start and end scanline vertices, and rendering vertex
+  float a1, a2;  // alphas for each crossing line (there can only be 2)
+  Vertex sv, ev; // Start and end scanline vertices
 
   for (int i = 0; i < numVertices; i++) {
     BC[i] = v[i].y - y; // + is above, - is below, 0 is on
@@ -596,47 +599,79 @@ void Poly::Rasterize(const int y) {
     ev = sv;
     sv = temp;
   }
-  vi = sv;
-  if (vi.x < 0) {
-    vi.x = 0;
-  }
-  if (ev.x < 0)
+
+  // Build RenderPack endpoints from sv and ev
+  renderlayout::RenderPack<2> scan; // 0 = left, 1 = right
+  scan.x(0) = sv.x;
+  scan.y(0) = sv.y;
+  scan.ez(0) = sv.ez;
+  scan.hw(0) = sv.hw;
+  scan.u(0) = sv.u;
+  scan.v(0) = sv.v;
+  scan.r(0) = sv.r;
+  scan.g(0) = sv.g;
+  scan.b(0) = sv.b;
+  scan.x(1) = ev.x;
+  scan.y(1) = ev.y;
+  scan.ez(1) = ev.ez;
+  scan.hw(1) = ev.hw;
+  scan.u(1) = ev.u;
+  scan.v(1) = ev.v;
+  scan.r(1) = ev.r;
+  scan.g(1) = ev.g;
+  scan.b(1) = ev.b;
+
+  float sx = scan.x(0);
+  float ex = scan.x(1);
+  if (sx < 0)
+    sx = 0;
+  if (ex < 0)
     return;
-  if (ev.x >= SIZE_X) {
-    ai = (sv.x - (SIZE_X - 1)) / ((sv.x - (SIZE_X - 1)) - (ev.x - (SIZE_X - 1)));
-    ev = sv + (ev - sv) * ai;
-  }
-  if (floor(vi.x) == ceil(ev.x))
+  if (ex >= SIZE_X)
+    ex = SIZE_X - 1;
+  if (floorf(sx) == ceilf(ex))
     return;
-  for (int x = vi.x; x <= ev.x; x++) {
-    ai = (sv.x - x) / ((sv.x - x) - (ev.x - x));
-    vi = sv + (ev - sv) * ai;
-    if (vi.ez / vi.hw < z_buffer[x + y * SIZE_X]) {
-      z_buffer[x + y * SIZE_X] = vi.ez / vi.hw;
+
+  const float invDen = 1.0f / (scan.x(0) - scan.x(1));
+  uint16_t poly_color =
+      RGB_MAKE((uint8_t)(r * 255.0f), (uint8_t)(g * 255.0f), (uint8_t)(b * 255.0f));
+  for (int x = static_cast<int>(ceilf(sx)); x <= static_cast<int>(floorf(ex)); x++) {
+    const float t = (scan.x(0) - static_cast<float>(x)) * invDen;
+    const float pix_ez = scan.ez(0) + (scan.ez(1) - scan.ez(0)) * t;
+    const float pix_hw = scan.hw(0) + (scan.hw(1) - scan.hw(0)) * t;
+    const float zval = pix_ez / pix_hw;
+    if (zval < z_buffer[x + y * SIZE_X]) {
+      z_buffer[x + y * SIZE_X] = zval;
       switch (rType) { // What are we interpolating/rendering?
       case FLAT:
-        display_buffer[x + y * SIZE_X] =
-            RGB_MAKE((char)(r * 255.0), (char)(g * 255.0), (char)(b * 255.0));
+        display_buffer[x + y * SIZE_X] = poly_color;
         break;
-      case COLORED:
-        vi.r = vi.r / vi.hw; // divide all interpolated values by hw
-        vi.g = vi.g / vi.hw; // divide all interpolated values by hw
-        vi.b = vi.b / vi.hw; // divide all interpolated values by hw
-        display_buffer[x + y * SIZE_X] =
-            RGB_MAKE((char)(vi.r * 255.0), (char)(vi.g * 255.0), (char)(vi.b * 255.0));
+      case COLORED: {
+        const float pix_r = (scan.r(0) + (scan.r(1) - scan.r(0)) * t) / pix_hw;
+        const float pix_g = (scan.g(0) + (scan.g(1) - scan.g(0)) * t) / pix_hw;
+        const float pix_b = (scan.b(0) + (scan.b(1) - scan.b(0)) * t) / pix_hw;
+        display_buffer[x + y * SIZE_X] = RGB_MAKE(
+            (uint8_t)(pix_r * 255.0f), (uint8_t)(pix_g * 255.0f), (uint8_t)(pix_b * 255.0f));
         break;
+      }
       case SMOOTH:
         break;
-      case TEXTURED:
-        vi.u = vi.u / vi.hw; // divide all interpolated values by hw
-        vi.v = vi.v / vi.hw; // divide all interpolated values by hw
-        if (vi.u < 0 || vi.u > 1)
-          vi.u = 0;
-        if (vi.v < 0 || vi.v > 1)
-          vi.v = 0;
-        display_buffer[x + y * SIZE_X] =
-            texture[(int)(vi.u * (texwidth - 1)) + ((int)(vi.v * (texheight - 1))) * texwidth];
+      case TEXTURED: {
+        float pix_u = (scan.u(0) + (scan.u(1) - scan.u(0)) * t) / pix_hw;
+        float pix_v = (scan.v(0) + (scan.v(1) - scan.v(0)) * t) / pix_hw;
+        int u_lt0 = pix_u<0.0f, u_gt1 = pix_u> 1.0f;
+        int u_in = !(u_lt0 | u_gt1);
+        int v_lt0 = pix_v<0.0f, v_gt1 = pix_v> 1.0f;
+        int v_in = !(v_lt0 | v_gt1);
+        pix_u = u_in * pix_u + u_gt1 * 1.0f + u_lt0 * 0.0f;
+        pix_v = v_in * pix_v + v_gt1 * 1.0f + v_lt0 * 0.0f;
+        int32_t ufx = (int32_t)(pix_u * (float)(texwidth - 1) * 65536.0f);
+        int32_t vfx = (int32_t)(pix_v * (float)(texheight - 1) * 65536.0f);
+        int tx = ufx >> 16;
+        int ty = vfx >> 16;
+        display_buffer[x + y * SIZE_X] = texture[tx + ty * texwidth];
         break;
+      }
       case TEXTURED_SMOOTH:
         break;
       default:
@@ -646,17 +681,11 @@ void Poly::Rasterize(const int y) {
   }
 }
 
-void Poly::RasterizeFast() {}
-
 void Poly::RasterizeFast(const int y) {
   if (y > ySorted[0].y || (y < ySorted[2].y && numVertices == 3) || y <= ySorted[3].y)
     return;
 
-  float interp[2][NUM_VERTEX_DATA]; // on the stack for speed, but only use numInterps
-  float px[NUM_VERTEX_DATA];        // For the pixel in the scanline
-
-  float dyl, dyr, ai;
-  float dx;
+  float dyl, dyr;
   int depthindex = -1, leftindex = 0, rightindex = 0;
 
   if (y < ySorted[0].y && y > ySorted[1].y &&
@@ -675,55 +704,149 @@ void Poly::RasterizeFast(const int y) {
   dyl = v[leftindex].y - y;
   dyr = v[rightindex].y - y;
 
-  for (int i = 0; i < NUM_VERTEX_DATA; i++) {
-    interp[0][i] = increments[depthindex][0][i] * dyl + v[leftindex][i];
-    interp[1][i] = increments[depthindex][1][i] * dyr + v[rightindex][i];
-  }
+  // Bridge to zero-cost layout pack for left/right scanline endpoints
+  renderlayout::RenderPack<2> scan; // 0 = left, 1 = right
+  // Required lanes for all modes
+  scan.x(0) = increments[depthindex][0][0] * dyl + v[leftindex][0];
+  scan.x(1) = increments[depthindex][1][0] * dyr + v[rightindex][0];
+  scan.y(0) = increments[depthindex][0][1] * dyl + v[leftindex][1];
+  scan.y(1) = increments[depthindex][1][1] * dyr + v[rightindex][1];
+  scan.ez(0) = increments[depthindex][0][6] * dyl + v[leftindex][6];
+  scan.ez(1) = increments[depthindex][1][6] * dyr + v[rightindex][6];
+  scan.hw(0) = increments[depthindex][0][15] * dyl + v[leftindex][15];
+  scan.hw(1) = increments[depthindex][1][15] * dyr + v[rightindex][15];
+  // Texture and color lanes (filled unconditionally; compiler can DCE when unused)
+  scan.u(0) = increments[depthindex][0][7] * dyl + v[leftindex][7];
+  scan.u(1) = increments[depthindex][1][7] * dyr + v[rightindex][7];
+  scan.v(0) = increments[depthindex][0][8] * dyl + v[leftindex][8];
+  scan.v(1) = increments[depthindex][1][8] * dyr + v[rightindex][8];
+  scan.r(0) = increments[depthindex][0][9] * dyl + v[leftindex][9];
+  scan.r(1) = increments[depthindex][1][9] * dyr + v[rightindex][9];
+  scan.g(0) = increments[depthindex][0][10] * dyl + v[leftindex][10];
+  scan.g(1) = increments[depthindex][1][10] * dyr + v[rightindex][10];
+  scan.b(0) = increments[depthindex][0][11] * dyl + v[leftindex][11];
+  scan.b(1) = increments[depthindex][1][11] * dyr + v[rightindex][11];
 
-  float sx = (interp[0][0]), ex = (interp[1][0]);
-  ai = 1 / (interp[0][0] - interp[1][0] - 1);
+  float sx = scan.x(0), ex = scan.x(1);
   if (ex < 0 || sx >= SIZE_X)
     return;
   if (sx < 0)
     sx = 0;
   if (ex >= SIZE_X)
     ex = SIZE_X - 1;
+  int xStart = (int)std::ceil(sx);
+  int xEnd = (int)std::floor(ex);
+  if (xEnd < xStart)
+    return;
 
-  for (int x = sx; x <= ex; x++) {
-    dx = (interp[0][0] - x);
-    for (int i = 0; i < NUM_VERTEX_DATA; i++)
-      px[i] = interp[0][i] + (interp[1][i] - interp[0][i]) * ai * dx;
-    if (px[6] / px[NUM_VERTEX_DATA - 1] < z_buffer[x + y * SIZE_X]) {
-      z_buffer[x + y * SIZE_X] = px[6] / px[NUM_VERTEX_DATA - 1];
-      switch (rType) {
-      default:
-      case FLAT:
-        display_buffer[x + y * SIZE_X] =
-            RGB_MAKE((char)(r * 255.0), (char)(g * 255.0), (char)(b * 255.0));
-        break;
-      case COLORED:
-        px[9] = px[9] / px[NUM_VERTEX_DATA - 1];   // divide all interpolated values by hw
-        px[10] = px[10] / px[NUM_VERTEX_DATA - 1]; // divide all interpolated values by hw
-        px[11] = px[11] / px[NUM_VERTEX_DATA - 1]; // divide all interpolated values by hw
-        display_buffer[x + y * SIZE_X] =
-            RGB_MAKE((char)(px[9] * 255.0), (char)(px[10] * 255.0), (char)(px[11] * 255.0));
-        break;
-      case SMOOTH:
-        break;
-      case TEXTURED:
-        px[7] = px[7] / px[NUM_VERTEX_DATA - 1];
-        px[8] = px[8] / px[NUM_VERTEX_DATA - 1];
-        if (px[7] < 0 || px[7] > 1)
-          px[7] = 0;
-        if (px[8] < 0 || px[8] > 1)
-          px[8] = 0;
-        display_buffer[x + y * SIZE_X] =
-            texture[(int)(px[7] * (texwidth - 1)) + ((int)(px[8] * (texheight - 1))) * texwidth];
-        break;
-      case TEXTURED_SMOOTH:
-        break;
+  const float invDen = 1.0f / (scan.x(0) - scan.x(1));
+  float t = (scan.x(0) - (float)xStart) * invDen;
+  const float dt = -invDen;
+
+  // Row pointers
+  float *zrow = z_buffer + y * SIZE_X;
+  uint16_t *drow = display_buffer + y * SIZE_X;
+
+  // Interpolants at xStart and their per-pixel steps
+  float ez = scan.ez(0) + (scan.ez(1) - scan.ez(0)) * t;
+  float hw = scan.hw(0) + (scan.hw(1) - scan.hw(0)) * t;
+  const float dez = (scan.ez(1) - scan.ez(0)) * dt;
+  const float dhw = (scan.hw(1) - scan.hw(0)) * dt;
+
+  switch (rType) {
+  default:
+  case FLAT: {
+    const uint16_t flatColor =
+        RGB_MAKE((uint8_t)(r * 255.0f), (uint8_t)(g * 255.0f), (uint8_t)(b * 255.0f));
+    for (int x = xStart; x <= xEnd; ++x) {
+      const float zval = ez / hw;
+      if (zval < zrow[x]) {
+        zrow[x] = zval;
+        drow[x] = flatColor;
       }
+      ez += dez;
+      hw += dhw;
     }
+    break;
+  }
+  case COLORED: {
+    float cr = scan.r(0) + (scan.r(1) - scan.r(0)) * t;
+    float cg = scan.g(0) + (scan.g(1) - scan.g(0)) * t;
+    float cb = scan.b(0) + (scan.b(1) - scan.b(0)) * t;
+    const float dcr = (scan.r(1) - scan.r(0)) * dt;
+    const float dcg = (scan.g(1) - scan.g(0)) * dt;
+    const float dcb = (scan.b(1) - scan.b(0)) * dt;
+    for (int x = xStart; x <= xEnd; ++x) {
+      const float inv_hw = 1.0f / hw;
+      const float zval = ez * inv_hw;
+      if (zval < zrow[x]) {
+        zrow[x] = zval;
+        drow[x] = RGB_MAKE((uint8_t)((cr * inv_hw) * 255.0f), (uint8_t)((cg * inv_hw) * 255.0f),
+                           (uint8_t)((cb * inv_hw) * 255.0f));
+      }
+      ez += dez;
+      hw += dhw;
+      cr += dcr;
+      cg += dcg;
+      cb += dcb;
+    }
+    break;
+  }
+  case TEXTURED: {
+    float uu = scan.u(0) + (scan.u(1) - scan.u(0)) * t;
+    float vv = scan.v(0) + (scan.v(1) - scan.v(0)) * t;
+    const float du = (scan.u(1) - scan.u(0)) * dt;
+    const float dv = (scan.v(1) - scan.v(0)) * dt;
+    const float uScale = (float)(texwidth - 1) * 65536.0f;
+    const float vScale = (float)(texheight - 1) * 65536.0f;
+    for (int x = xStart; x <= xEnd; ++x) {
+      const float inv_hw = 1.0f / hw;
+      const float zval = ez * inv_hw;
+      if (zval < zrow[x]) {
+        zrow[x] = zval;
+        float pu = uu * inv_hw;
+        float pv = vv * inv_hw;
+        int u_lt0 = pu<0.0f, u_gt1 = pu> 1.0f;
+        int u_in = !(u_lt0 | u_gt1);
+        int v_lt0 = pv<0.0f, v_gt1 = pv> 1.0f;
+        int v_in = !(v_lt0 | v_gt1);
+        pu = u_in * pu + u_gt1 * 1.0f + u_lt0 * 0.0f;
+        pv = v_in * pv + v_gt1 * 1.0f + v_lt0 * 0.0f;
+        int32_t ufx = (int32_t)(pu * uScale);
+        int32_t vfx = (int32_t)(pv * vScale);
+        int tx = ufx >> 16;
+        int ty = vfx >> 16;
+        drow[x] = texture[tx + ty * texwidth];
+      }
+      ez += dez;
+      hw += dhw;
+      uu += du;
+      vv += dv;
+    }
+    break;
+  }
+  case SMOOTH:
+  case TEXTURED_SMOOTH:
+    // Unchanged
+    break;
+  }
+}
+
+void Poly::RasterizeFull() {
+  // Determine y-extent from sorted vertices
+  int yTop = static_cast<int>(std::floor(ySorted[0].y));
+  int yBot = 0;
+  if (numVertices == 3) {
+    yBot = static_cast<int>(std::ceil(ySorted[2].y));
+  } else {
+    yBot = static_cast<int>(std::ceil(ySorted[3].y));
+  }
+  if (yTop >= SIZE_Y)
+    yTop = SIZE_Y - 1;
+  if (yBot < 0)
+    yBot = 0;
+  for (int y = yTop; y >= yBot; --y) {
+    RasterizeFast(y);
   }
 }
 

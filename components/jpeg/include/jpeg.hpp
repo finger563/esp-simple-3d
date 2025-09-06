@@ -3,7 +3,6 @@
 #include <fstream>
 
 #include "esp_heap_caps.h"
-#include "lvgl.h"
 
 #include "JPEGDEC.h"
 #include "format.hpp"
@@ -72,6 +71,43 @@ public:
       image_width_ = 0;
       image_height_ = 0;
       fmt::print("Couldn't decode!\n");
+      return false;
+    }
+    decoder_.close();
+    return true;
+  }
+
+  // Decode from a memory buffer (JPEG bytes). Returns true on success.
+  bool decode_memory(const uint8_t *data, size_t length) {
+    if (!data || length == 0)
+      return false;
+    // Free previous encoded buffer; we don't need to own input bytes here.
+    if (encoded_data_) {
+      heap_caps_free(encoded_data_);
+      encoded_data_ = nullptr;
+    }
+    // Open from RAM directly
+    decoder_.openRAM(const_cast<uint8_t *>(data), (int)length, &Jpeg::on_data_decode);
+    decoder_.setPixelType(RGB565_BIG_ENDIAN);
+    image_width_ = decoder_.getWidth();
+    image_height_ = decoder_.getHeight();
+    image_size_ = image_height_ * image_width_ * sizeof(uint16_t);
+    if (decoded_data_) {
+      heap_caps_free(decoded_data_);
+      decoded_data_ = nullptr;
+    }
+    decoded_data_ = (uint8_t *)heap_caps_malloc(image_size_, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+    if (!decoded_data_) {
+      image_size_ = 0;
+      image_width_ = 0;
+      image_height_ = 0;
+      decoder_.close();
+      return false;
+    }
+    if (!decoder_.decode(0, 0, 0)) {
+      image_size_ = 0;
+      image_width_ = 0;
+      image_height_ = 0;
       return false;
     }
     decoder_.close();
