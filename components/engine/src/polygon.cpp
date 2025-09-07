@@ -9,8 +9,15 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
   Poly p(a, b, c, Vertex(), 3, Vector3D(0, 0, 1), rt);
   if (rt == TEXTURED && texture) {
     p.SetTexture(texture, texwidth, texheight);
-  } else if (rt == COLORED) {
+  } else {
+    // Apply a constant color. If rt is COLORED this would normally
+    // perspective-interpolate, but since all 3 vertices share the same
+    // color the result is effectively flat. For explicit flat shading
+    // callers can pass FLAT, which also uses this color.
     p.SetColor(cr, cg, cb);
+    if (rt == COLORED) {
+      p.SetRenderType(FLAT);
+    }
   }
   p.visible = true;
   // Minimal setup for scanline: sort and rasterize fast on a single y span
