@@ -816,8 +816,6 @@ void updatePixels(uint16_t *dst) {
     it.updateList();
     it.TransformToCamera(worldToCamera);
     it.TransformToPerspective(perspectiveProjection);
-    // zero-copy append
-    it.AppendRenderPointers(renderptrs);
     // indexed pipeline append (if any meshes present)
     it.AppendDrawItems(worldToCamera, perspectiveProjection, projectionToPixel, frameVertices,
                        frameIndices, drawList);
@@ -827,8 +825,6 @@ void updatePixels(uint16_t *dst) {
     it.updateList();
     it.TransformToCamera(worldToCamera);
     it.TransformToPerspective(perspectiveProjection);
-    // zero-copy append
-    it.AppendRenderPointers(renderptrs);
     // indexed pipeline append
     it.AppendDrawItems(worldToCamera, perspectiveProjection, projectionToPixel, frameVertices,
                        frameIndices, drawList);
@@ -836,36 +832,6 @@ void updatePixels(uint16_t *dst) {
 
   logger.debug("Rendering {} polys (legacy) and {} indexed draws ({} tris)", renderptrs.size(),
                drawList.size(), frameIndices.size() / 3);
-
-#define ENABLE_FAST_RASTERIZATION 0
-
-  // Prepare and rasterize using pointers to avoid copies
-  for (auto *it : renderptrs) {
-    // Early clip reject (simple screen-space bounds after homogeneous divide)
-    it->Clip();
-    it->HomogeneousDivide();
-    // Quick bounds test in NDC
-    float minx = it->MinX();
-    float maxx = it->MaxX();
-    float miny = it->MinY();
-    float maxy = it->MaxY();
-    if (maxx < -1.0f || minx > 1.0f || maxy < -1.0f || miny > 1.0f) {
-      continue; // fully outside viewport
-    }
-    it->TransformToPixel(projectionToPixel);
-    it->SetupRasterization();
-#if !ENABLE_FAST_RASTERIZATION
-    it->RasterizeFull();
-#endif
-  }
-
-#if ENABLE_FAST_RASTERIZATION
-  for (int y = 0; y < SIZE_Y; y++) {
-    for (auto *it : renderptrs) {
-      it->RasterizeFast(y);
-    }
-  }
-#endif
 
   // Indexed pipeline rasterization
   if (!drawList.empty()) {

@@ -155,149 +155,107 @@ void Object::add(const Poly &poly) {
 }
 
 void Object::GenerateCube(float size) {
-  // stores in objects master list
-  master.push_back(Poly(Vertex(size, size, size, 1, 0, 0), Vertex(-size, size, size, 1, 1, 0),
-                        Vertex(size, -size, size, 1, 0, 1), Vertex(), 3, Vector3D(0, 0, 1),
-                        TEXTURED));
+  const float x0 = -size, x1 = size;
+  const float y0 = -size, y1 = size;
+  const float z0 = -size, z1 = size;
 
-  master.push_back(Poly(Vertex(size, -size, size, 1, 0, 1), Vertex(-size, size, size, 1, 1, 0),
-                        Vertex(-size, -size, size, 1, 1, 1), Vertex(), 3, Vector3D(0, 0, 1),
-                        TEXTURED));
+  std::vector<Vertex> vertices;
+  vertices.reserve(24);
+  auto push_face = [&](float ax, float ay, float az, float bx, float by, float bz, float cx,
+                       float cy, float cz, float dx, float dy, float dz) {
+    Vertex v0(ax, ay, az, 1.0f, 0.0f, 1.0f);
+    Vertex v1(bx, by, bz, 1.0f, 0.0f, 0.0f);
+    Vertex v2(cx, cy, cz, 1.0f, 1.0f, 0.0f);
+    Vertex v3(dx, dy, dz, 1.0f, 1.0f, 1.0f);
+    vertices.push_back(v0);
+    vertices.push_back(v1);
+    vertices.push_back(v2);
+    vertices.push_back(v3);
+  };
+  // +Z face
+  push_face(x0, y0, z1, x0, y1, z1, x1, y1, z1, x1, y0, z1);
+  // -Z face
+  push_face(x1, y0, z0, x1, y1, z0, x0, y1, z0, x0, y0, z0);
+  // +X face
+  push_face(x1, y0, z1, x1, y1, z1, x1, y1, z0, x1, y0, z0);
+  // -X face
+  push_face(x0, y0, z0, x0, y1, z0, x0, y1, z1, x0, y0, z1);
+  // +Y face
+  push_face(x0, y1, z1, x0, y1, z0, x1, y1, z0, x1, y1, z1);
+  // -Y face
+  push_face(x0, y0, z0, x0, y0, z1, x1, y0, z1, x1, y0, z0);
 
-  master.push_back(Poly(Vertex(size, size, -size, 1, 1, 0), Vertex(size, -size, -size, 1, 1, 1),
-                        Vertex(-size, size, -size, 1, 0, 0), Vertex(), 3, Vector3D(0, 0, -1),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(size, -size, -size, 1, 1, 1), Vertex(-size, -size, -size, 1, 0, 1),
-                        Vertex(-size, size, -size, 1, 0, 0), Vertex(), 3, Vector3D(0, 0, -1),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(size, size, -size, 1, 0, 0), Vertex(size, size, size, 1, 1, 0),
-                        Vertex(size, -size, size, 1, 1, 1), Vertex(), 3, Vector3D(1, 0, 0),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(size, size, -size, 1, 0, 0), Vertex(size, -size, size, 1, 1, 1),
-                        Vertex(size, -size, -size, 1, 0, 1), Vertex(), 3, Vector3D(1, 0, 0),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(-size, size, -size, 1, 1, 0), Vertex(-size, -size, -size, 1, 1, 1),
-                        Vertex(-size, size, size, 1, 0, 0), Vertex(), 3, Vector3D(-1, 0, 0),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(-size, size, size, 1, 0, 0), Vertex(-size, -size, -size, 1, 1, 1),
-                        Vertex(-size, -size, size, 1, 0, 1), Vertex(), 3, Vector3D(-1, 0, 0),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(size, size, size, 1, 1, 0), Vertex(size, size, -size, 1, 1, 1),
-                        Vertex(-size, size, size, 1, 0, 0), Vertex(), 3, Vector3D(0, 1, 0),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(-size, size, -size, 1, 0, 1), Vertex(-size, size, size, 1, 0, 0),
-                        Vertex(size, size, -size, 1, 1, 1), Vertex(), 3, Vector3D(0, 1, 0),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(size, -size, size, 1, 1, 1), Vertex(-size, -size, -size, 1, 0, 0),
-                        Vertex(size, -size, -size, 1, 1, 0), Vertex(), 3, Vector3D(0, -1, 0),
-                        TEXTURED));
-
-  master.push_back(Poly(Vertex(size, -size, size, 1, 1, 1), Vertex(-size, -size, size, 1, 0, 1),
-                        Vertex(-size, -size, -size, 1, 0, 0), Vertex(), 3, Vector3D(0, -1, 0),
-                        TEXTURED));
-
-  for (auto &it : master) {
-    it.SetTexture(tex, texWidth, texHeight);
-    it.SetColor(rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX);
-    it.SetVertexColors(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9);
+  std::vector<uint32_t> indices;
+  indices.reserve(36);
+  for (uint32_t f = 0; f < 6; ++f) {
+    uint32_t b = f * 4;
+    indices.push_back(b + 0);
+    indices.push_back(b + 1);
+    indices.push_back(b + 2);
+    indices.push_back(b + 0);
+    indices.push_back(b + 2);
+    indices.push_back(b + 3);
   }
+
+  RenderType rt = (tex && texWidth > 0 && texHeight > 0) ? TEXTURED : COLORED;
+  float cr = 1.0f, cg = 1.0f, cb = 1.0f;
+  AddMesh(vertices, indices, rt, tex, texWidth, texHeight, cr, cg, cb);
 
   rx = size;
   ry = size;
   rz = size;
-  theta = 3.141592;
-  phi = 0;
-
-  updateList();
+  theta = 3.141592f;
+  phi = 0.0f;
 }
 
 void Object::GenerateTetra(float size) {
-  Vertex p1 = Vertex(size, 0, -size / sqrt(2.0)), p2 = Vertex(-size, 0, -size / sqrt(2.0)),
-         p3 = Vertex(0, size, size / sqrt(2.0)), p4 = Vertex(0, -size, size / sqrt(2.0));
-
-  Poly tri1 = Poly(p1, p2,
-                   p3), //, Vector3D(0,0,1),Point2D(0,0),Point2D(0,texWidth),Point2D(texWidth,0)),
-
-      tri2 = Poly(
-          p2, p3,
-          p4), //,
-               // Vector3D(0,0,1),Point2D(0,texWidth),Point2D(texWidth,0),Point2D(texWidth,texWidth)),
-
-      tri3 = Poly(
-          p3, p4,
-          p1), //, Vector3D(0,0,-1),Point2D(texWidth,0),Point2D(texWidth,texWidth),Point2D(0,0)),
-
-      tri4 = Poly(
-          p1, p2,
-          p4); //, Vector3D(0,0,-1),Point2D(texWidth,texWidth),Point2D(0,0),Point2D(0,texWidth));
-
-  // stores in objects master list
-  master.push_back(tri1);
-  master.push_back(tri2);
-  master.push_back(tri3);
-  master.push_back(tri4);
-
-  for (auto &poly : master) {
-    poly.SetTexture(tex, texWidth, texHeight);
-  }
-
-  updateList();
+  std::vector<Vertex> vertices;
+  vertices.reserve(4);
+  float s2 = size / sqrtf(2.0f);
+  vertices.emplace_back(size, 0, -s2, 1.0f);
+  vertices.emplace_back(-size, 0, -s2, 1.0f);
+  vertices.emplace_back(0, size, s2, 1.0f);
+  vertices.emplace_back(0, -size, s2, 1.0f);
+  std::vector<uint32_t> indices{
+      0, 1, 2, // p1,p2,p3
+      1, 2, 3, // p2,p3,p4
+      2, 3, 0, // p3,p4,p1
+      0, 1, 3  // p1,p2,p4
+  };
+  AddMesh(vertices, indices, COLORED, nullptr, 0, 0, 1.0f, 1.0f, 1.0f);
 }
 
 void Object::GenerateFloor(float length, float depth) {
-
-  master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(-length, 0, length, 1, 0, 0),
-                        Vertex(length, 0, length, 1, 1, 0), Vertex(), 3, Vector3D(0, 1, 0),
-                        TEXTURED));
-  master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(length, 0, length, 1, 1, 0),
-                        Vertex(length, 0, -length, 1, 1, 1), Vertex(), 3, Vector3D(0, 1, 0),
-                        TEXTURED));
-
-  for (auto &poly : master) {
-    poly.SetTexture(tex, texWidth, texHeight);
-  }
-
-  rx = length / 2.0;
-  ry = 0;
-  rz = length / 2.0;
-  theta = 0;
-  phi = 3.141592 / 2.0;
-  position = Point3D(0, depth, 0);
-  updateList();
+  // Build a textured quad at y=depth, spanning [-length,length] in X and Z
+  std::vector<Vertex> vertices;
+  vertices.reserve(4);
+  vertices.emplace_back(-length, depth, -length, 1.0f, 0.0f, 1.0f);
+  vertices.emplace_back(-length, depth, +length, 1.0f, 0.0f, 0.0f);
+  vertices.emplace_back(+length, depth, +length, 1.0f, 1.0f, 0.0f);
+  vertices.emplace_back(+length, depth, -length, 1.0f, 1.0f, 1.0f);
+  std::vector<uint32_t> indices{0, 1, 2, 0, 2, 3};
+  AddMesh(vertices, indices, (tex && texWidth > 0 && texHeight > 0) ? TEXTURED : COLORED, tex,
+          texWidth, texHeight, 1.0f, 1.0f, 1.0f);
+  rx = length * 0.5f;
+  ry = 0.0f;
+  rz = length * 0.5f;
 }
 
 // Incomplete...
 void Object::GenerateCeiling(float length, float depth) {
-  position = Point3D(0, depth, 0);
-
-  theta = 0;
-  phi = 0;
-
-  master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(-length, 0, length, 1, 0, 0),
-                        Vertex(length, 0, length, 1, 1, 0), Vertex(), 3, Vector3D(0, 1, 0),
-                        TEXTURED));
-  master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(length, 0, length, 1, 1, 0),
-                        Vertex(length, 0, -length, 1, 1, 1), Vertex(), 3, Vector3D(0, 1, 0),
-                        TEXTURED));
-
-  for (auto &poly : master) {
-    poly.SetTexture(tex, texWidth, texHeight);
-  }
-
-  rx = length / 2.0;
-  ry = 0;
-  rz = length / 2.0;
-
-  RotateToHeading(Vector3D(0, -1, 0));
-  updateList();
+  // Build a textured quad at y=depth
+  std::vector<Vertex> vertices;
+  vertices.reserve(4);
+  vertices.emplace_back(-length, depth, -length, 1.0f, 0.0f, 1.0f);
+  vertices.emplace_back(-length, depth, +length, 1.0f, 0.0f, 0.0f);
+  vertices.emplace_back(+length, depth, +length, 1.0f, 1.0f, 0.0f);
+  vertices.emplace_back(+length, depth, -length, 1.0f, 1.0f, 1.0f);
+  std::vector<uint32_t> indices{0, 1, 2, 0, 2, 3};
+  AddMesh(vertices, indices, (tex && texWidth > 0 && texHeight > 0) ? TEXTURED : COLORED, tex,
+          texWidth, texHeight, 1.0f, 1.0f, 1.0f);
+  rx = length * 0.5f;
+  ry = 0.0f;
+  rz = length * 0.5f;
 }
 
 // Generates wall
@@ -306,80 +264,39 @@ void Object::GenerateCeiling(float length, float depth) {
 ///////////// 2 = right: to the right of player init
 ///////////// 3 = back: behind player init
 void Object::GenerateWall(size_t type, float length, float depth) {
-
-  switch (type) {
-  case 0: // front
-    theta = 0;
-    phi = 3.14 / 2;
-    position = Point3D(0, depth, length);
-    break;
-  case 1: // left
-    theta = -3.14 / 2;
-    phi = 3.14 / 2;
-    position = Point3D(-length, depth, 0);
-    break;
-  case 2: // right
-    theta = 3.14 / 2;
-    phi = 3.14 / 2;
-    position = Point3D(length, depth, 0);
-    break;
-  case 3: // behind
-    theta = 3.14;
-    phi = 3.14 / 2;
-    position = Point3D(0, depth, -length);
-    break;
+  // Build a vertical textured quad centered at y=depth
+  std::vector<Vertex> vertices;
+  vertices.reserve(4);
+  if (type == 0) { // front (+Z)
+    vertices.emplace_back(-length, depth - length, +length, 1.0f, 0.0f, 1.0f);
+    vertices.emplace_back(-length, depth + length, +length, 1.0f, 0.0f, 0.0f);
+    vertices.emplace_back(+length, depth + length, +length, 1.0f, 1.0f, 0.0f);
+    vertices.emplace_back(+length, depth - length, +length, 1.0f, 1.0f, 1.0f);
+  } else if (type == 3) { // back (-Z)
+    vertices.emplace_back(+length, depth - length, -length, 1.0f, 0.0f, 1.0f);
+    vertices.emplace_back(+length, depth + length, -length, 1.0f, 0.0f, 0.0f);
+    vertices.emplace_back(-length, depth + length, -length, 1.0f, 1.0f, 0.0f);
+    vertices.emplace_back(-length, depth - length, -length, 1.0f, 1.0f, 1.0f);
+  } else if (type == 1) { // left (-X)
+    vertices.emplace_back(-length, depth - length, -length, 1.0f, 0.0f, 1.0f);
+    vertices.emplace_back(-length, depth + length, -length, 1.0f, 0.0f, 0.0f);
+    vertices.emplace_back(-length, depth + length, +length, 1.0f, 1.0f, 0.0f);
+    vertices.emplace_back(-length, depth - length, +length, 1.0f, 1.0f, 1.0f);
+  } else if (type == 2) { // right (+X)
+    vertices.emplace_back(+length, depth - length, +length, 1.0f, 0.0f, 1.0f);
+    vertices.emplace_back(+length, depth + length, +length, 1.0f, 0.0f, 0.0f);
+    vertices.emplace_back(+length, depth + length, -length, 1.0f, 1.0f, 0.0f);
+    vertices.emplace_back(+length, depth - length, -length, 1.0f, 1.0f, 1.0f);
   }
-
-  master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(-length, 0, length, 1, 0, 0),
-                        Vertex(length, 0, length, 1, 1, 0), Vertex(), 3, Vector3D(0, 1, 0),
-                        TEXTURED));
-  master.push_back(Poly(Vertex(-length, 0, -length, 1, 0, 1), Vertex(length, 0, length, 1, 1, 0),
-                        Vertex(length, 0, -length, 1, 1, 1), Vertex(), 3, Vector3D(0, 1, 0),
-                        TEXTURED));
-
-  for (auto &poly : master) {
-    poly.SetTexture(tex, texWidth, texHeight);
-  }
-
-  rx = length / 2.0;
-  ry = length / 2.0;
-  rz = length / 2.0;
-
-  RotateToHeading();
-  updateList();
+  std::vector<uint32_t> indices{0, 1, 2, 0, 2, 3};
+  AddMesh(vertices, indices, (tex && texWidth > 0 && texHeight > 0) ? TEXTURED : COLORED, tex,
+          texWidth, texHeight, 1.0f, 1.0f, 1.0f);
+  rx = length * 0.5f;
+  ry = length * 0.5f;
+  rz = length * 0.5f;
 }
 
 void Object::GenerateAxes(float length, float thickness) {
-  Matrix I;
-  I.SetIdentity();
-  auto make_transform = [](float tx, float ty, float tz, float rx, float ry, float rz) {
-    Matrix m;
-    m.SetIdentity();
-    Matrix rxm;
-    rxm.SetIdentity();
-    rxm[1][1] = cosf(rx);
-    rxm[1][2] = -sinf(rx);
-    rxm[2][1] = sinf(rx);
-    rxm[2][2] = cosf(rx);
-    Matrix rym;
-    rym.SetIdentity();
-    rym[0][0] = cosf(ry);
-    rym[0][2] = sinf(ry);
-    rym[2][0] = -sinf(ry);
-    rym[2][2] = cosf(ry);
-    Matrix rzm;
-    rzm.SetIdentity();
-    rzm[0][0] = cosf(rz);
-    rzm[0][1] = -sinf(rz);
-    rzm[1][0] = sinf(rz);
-    rzm[1][1] = cosf(rz);
-    Matrix r = rxm * (rym * rzm);
-    r[3][0] = tx;
-    r[3][1] = ty;
-    r[3][2] = tz;
-    return r;
-  };
-
   // Use rectangular prisms aligned with axes, centered at origin
   GenerateRectangularPrism(Vector3D(length / 2, thickness, thickness),
                            Matrix::Translation(Point3D(length / 2, 0, 0)), Vector3D(1, 0, 0));
@@ -389,11 +306,11 @@ void Object::GenerateAxes(float length, float thickness) {
                            Matrix::Translation(Point3D(0, 0, length / 2)), Vector3D(0, 0, 1));
   // negative axis
   GenerateRectangularPrism(Vector3D(length / 2, thickness, thickness),
-                           Matrix::Translation(Point3D(-length / 2, 0, 0)), Vector3D(0.25, 0, 0));
+                           Matrix::Translation(Point3D(-length / 2, 0, 0)), Vector3D(0.35, 0, 0));
   GenerateRectangularPrism(Vector3D(thickness, length / 2, thickness),
-                           Matrix::Translation(Point3D(0, -length / 2, 0)), Vector3D(0, 0.25, 0));
+                           Matrix::Translation(Point3D(0, -length / 2, 0)), Vector3D(0, 0.35, 0));
   GenerateRectangularPrism(Vector3D(thickness, thickness, length / 2),
-                           Matrix::Translation(Point3D(0, 0, -length / 2)), Vector3D(0, 0, 0.25));
+                           Matrix::Translation(Point3D(0, 0, -length / 2)), Vector3D(0, 0, 0.35));
   updateList();
 }
 
@@ -403,37 +320,73 @@ void Object::GenerateRectangularPrism(const Vector3D &halfSize, const Matrix &tr
   const float y0 = -halfSize.y, y1 = halfSize.y;
   const float z0 = -halfSize.z, z1 = halfSize.z;
 
-  auto add_face = [&](Vertex a, Vertex b, Vertex c, const Vector3D &n) {
-    // Apply transform to each vertex (position only)
-    a.Transform(transform);
-    b.Transform(transform);
-    c.Transform(transform);
-    a.SetColor(color.x, color.y, color.z);
-    b.SetColor(color.x, color.y, color.z);
-    c.SetColor(color.x, color.y, color.z);
-    Poly p(a, b, c, Vertex(), 3, n, COLORED);
-    p.SetDoubleSided(true);
-    master.emplace_back(p);
+  // 8 unique corners
+  std::vector<Vertex> vertices;
+  vertices.reserve(8);
+  auto make_v = [&](float x, float y, float z) {
+    Vertex v(x, y, z, 1.0f);
+    v.SetColor(color.x, color.y, color.z);
+    v.Transform(transform);
+    return v;
   };
+  // Index mapping
+  // 0: (x0,y0,z0)  1: (x0,y0,z1)  2: (x0,y1,z0)  3: (x0,y1,z1)
+  // 4: (x1,y0,z0)  5: (x1,y0,z1)  6: (x1,y1,z0)  7: (x1,y1,z1)
+  vertices.emplace_back(make_v(x0, y0, z0)); // 0
+  vertices.emplace_back(make_v(x0, y0, z1)); // 1
+  vertices.emplace_back(make_v(x0, y1, z0)); // 2
+  vertices.emplace_back(make_v(x0, y1, z1)); // 3
+  vertices.emplace_back(make_v(x1, y0, z0)); // 4
+  vertices.emplace_back(make_v(x1, y0, z1)); // 5
+  vertices.emplace_back(make_v(x1, y1, z0)); // 6
+  vertices.emplace_back(make_v(x1, y1, z1)); // 7
 
-  // +X face
-  add_face(Vertex(x1, y0, z0), Vertex(x1, y0, z1), Vertex(x1, y1, z0), Vector3D(1, 0, 0));
-  add_face(Vertex(x1, y1, z0), Vertex(x1, y0, z1), Vertex(x1, y1, z1), Vector3D(1, 0, 0));
-  // -X face
-  add_face(Vertex(x0, y0, z0), Vertex(x0, y1, z0), Vertex(x0, y0, z1), Vector3D(-1, 0, 0));
-  add_face(Vertex(x0, y1, z0), Vertex(x0, y1, z1), Vertex(x0, y0, z1), Vector3D(-1, 0, 0));
-  // +Y face
-  add_face(Vertex(x0, y1, z0), Vertex(x1, y1, z0), Vertex(x0, y1, z1), Vector3D(0, 1, 0));
-  add_face(Vertex(x1, y1, z0), Vertex(x1, y1, z1), Vertex(x0, y1, z1), Vector3D(0, 1, 0));
-  // -Y face
-  add_face(Vertex(x0, y0, z0), Vertex(x0, y0, z1), Vertex(x1, y0, z0), Vector3D(0, -1, 0));
-  add_face(Vertex(x1, y0, z0), Vertex(x0, y0, z1), Vertex(x1, y0, z1), Vector3D(0, -1, 0));
-  // +Z face
-  add_face(Vertex(x0, y0, z1), Vertex(x0, y1, z1), Vertex(x1, y0, z1), Vector3D(0, 0, 1));
-  add_face(Vertex(x1, y0, z1), Vertex(x0, y1, z1), Vertex(x1, y1, z1), Vector3D(0, 0, 1));
-  // -Z face
-  add_face(Vertex(x0, y0, z0), Vertex(x1, y0, z0), Vertex(x0, y1, z0), Vector3D(0, 0, -1));
-  add_face(Vertex(x0, y1, z0), Vertex(x1, y0, z0), Vertex(x1, y1, z0), Vector3D(0, 0, -1));
+  // 12 triangles (two per face), shared vertices
+  std::vector<uint32_t> indices = {
+      // +X face (x = x1)
+      5,
+      7,
+      6,
+      5,
+      6,
+      4,
+      // +Y face (y = y1)
+      3,
+      7,
+      6,
+      3,
+      6,
+      2,
+      // +Z face (z = z1)
+      1,
+      3,
+      7,
+      1,
+      7,
+      5,
+      // -X face (x = x0)
+      0,
+      2,
+      3,
+      0,
+      3,
+      1,
+      // -Y face (y = y0)
+      0,
+      1,
+      5,
+      0,
+      5,
+      4,
+      // -Z face (z = z0)
+      4,
+      6,
+      2,
+      4,
+      2,
+      0,
+  };
+  AddMesh(vertices, indices, COLORED, nullptr, 0, 0, color.x, color.y, color.z);
 }
 
 void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
@@ -504,6 +457,9 @@ bool Object::SetRenderType(RenderType rt) {
   for (auto &poly : master) {
     poly.SetRenderType(rt);
   }
+  for (auto &m : meshes) {
+    m.rType = rt;
+  }
   return true;
 }
 
@@ -562,6 +518,8 @@ void Object::AppendDrawItems(const Matrix &view, const Matrix &proj, const Matri
     // Transform vertices: view -> projection -> homogeneous divide -> viewport
     for (const auto &vin : mesh.vertices) {
       Vertex v = vin;
+      // apply object local->world translation
+      v.Translate(Vector3D(position.x, position.y, position.z));
       v.TransformToCamera(view);
       v.TransformToPerspective(proj);
       v.HomogeneousDivide();
