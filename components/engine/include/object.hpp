@@ -9,6 +9,16 @@
 
 class Object {
 public:
+  struct DrawView {
+    size_t baseVertex{0};
+    size_t baseIndex{0};
+    size_t indexCount{0};
+    RenderType rType{TEXTURED};
+    const unsigned short *texture{nullptr};
+    int texwidth{0};
+    int texheight{0};
+    float r{1.0f}, g{1.0f}, b{1.0f};
+  };
   // Constructor
   Object();
 
@@ -108,19 +118,40 @@ public:
   // Expose temp size for pre-reserving render pointer capacity
   size_t TempSize() const { return temp.size(); }
 
+  // Build per-frame transformed vertices/indices and draw views for indexed meshes
+  void AppendDrawItems(const Matrix &view, const Matrix &proj, const Matrix &viewport,
+                       std::vector<Vertex> &outVertices, std::vector<uint32_t> &outIndices,
+                       std::vector<DrawView> &outDraws) const;
+
   // Geometry bounds helpers
   // Returns axis-aligned bounds in object local space. Returns false if empty.
   bool GetLocalBounds(Point3D &outMin, Point3D &outMax) const;
   // Returns axis-aligned bounds in world space (local bounds offset by position)
   bool GetWorldBounds(Point3D &outMin, Point3D &outMax) const;
 
+  // Add an indexed mesh to this object
+  void AddMesh(const std::vector<Vertex> &vertices, const std::vector<uint32_t> &indices,
+               RenderType rt, const unsigned short *texPtr, int texW, int texH, float cr = 1.0f,
+               float cg = 1.0f, float cb = 1.0f);
+
   void projectileInit(const Vector3D &head, const Vector3D &pos = Vector3D(0, 0, 0));
 
   bool CollidesWith(const Object &b);
 
 private:
+  struct Mesh {
+    std::vector<Vertex> vertices;  // unique vertices (object local space)
+    std::vector<uint32_t> indices; // triangle indices (3 per face)
+    RenderType rType{TEXTURED};
+    const unsigned short *texture{nullptr};
+    int texwidth{0};
+    int texheight{0};
+    float r{1.0f}, g{1.0f}, b{1.0f}; // for COLORED
+  };
+
   std::vector<Poly> master;
   std::vector<Poly> temp;
+  std::vector<Mesh> meshes; // indexed meshes (preferred)
   Point3D position;
   Vector3D heading, velocity;
   float theta, phi;

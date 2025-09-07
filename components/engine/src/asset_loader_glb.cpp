@@ -4,11 +4,13 @@
 #include "asset_loader.hpp"
 
 #include "format.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -49,8 +51,7 @@ bool LoadGLB(const string &glbPath, Object &outObject, MaterialInfo *outMat,
     return false;
   }
 
-  size_t total_vertices = 0;
-  size_t total_polys = 0;
+  // First pass: compute global bounds of all positions
   float minx = std::numeric_limits<float>::infinity();
   float miny = std::numeric_limits<float>::infinity();
   float minz = std::numeric_limits<float>::infinity();
@@ -59,12 +60,41 @@ bool LoadGLB(const string &glbPath, Object &outObject, MaterialInfo *outMat,
   float maxz = -std::numeric_limits<float>::infinity();
   for (cgltf_size meshIndex = 0; meshIndex < data->meshes_count; ++meshIndex) {
     const cgltf_mesh &mesh = data->meshes[meshIndex];
+    for (cgltf_size primIndex = 0; primIndex < mesh.primitives_count; ++primIndex) {
+      const cgltf_primitive &prim = mesh.primitives[primIndex];
+      const cgltf_accessor *posAcc = nullptr;
+      for (cgltf_size i = 0; i < prim.attributes_count; ++i) {
+        const cgltf_attribute &attr = prim.attributes[i];
+        if (attr.type == cgltf_attribute_type_position)
+          posAcc = attr.data;
+      }
+      if (!posAcc)
+        continue;
+      for (cgltf_size i = 0; i < posAcc->count; ++i) {
+        float tmp[3] = {0, 0, 0};
+        cgltf_accessor_read_float(posAcc, i, tmp, 3);
+        minx = std::min(minx, tmp[0]);
+        miny = std::min(miny, tmp[1]);
+        minz = std::min(minz, tmp[2]);
+        maxx = std::max(maxx, tmp[0]);
+        maxy = std::max(maxy, tmp[1]);
+        maxz = std::max(maxz, tmp[2]);
+      }
+    }
+  }
+  const float cx = (minx + maxx) * 0.5f;
+  const float cy = (miny + maxy) * 0.5f;
+  const float cz = (minz + maxz) * 0.5f;
+
+  size_t total_vertices = 0;
+  size_t total_tris = 0;
+  for (cgltf_size meshIndex = 0; meshIndex < data->meshes_count; ++meshIndex) {
+    const cgltf_mesh &mesh = data->meshes[meshIndex];
     fmt::print("[GLB] Mesh {} has {} primitives\n", (int)meshIndex, (int)mesh.primitives_count);
     for (cgltf_size primIndex = 0; primIndex < mesh.primitives_count; ++primIndex) {
       const cgltf_primitive &prim = mesh.primitives[primIndex];
       fmt::print("[GLB]  Primitive {} type {}\n", (int)primIndex, (int)prim.type);
 
-      // Collect attributes
       const cgltf_accessor *posAcc = nullptr;
       const cgltf_accessor *norAcc = nullptr;
       const cgltf_accessor *uvAcc = nullptr;
@@ -88,45 +118,31 @@ bool LoadGLB(const string &glbPath, Object &outObject, MaterialInfo *outMat,
       if (!posAcc)
         continue;
 
-      // Read positions
-      std::vector<float> positions;
-      positions.resize((size_t)posAcc->count * 3);
+      std::vector<Vertex> vertices;
+      vertices.resize((size_t)posAcc->count);
       for (cgltf_size i = 0; i < posAcc->count; ++i) {
         float tmp[3] = {0, 0, 0};
         cgltf_accessor_read_float(posAcc, i, tmp, 3);
-        positions[i * 3 + 0] = tmp[0];
-        positions[i * 3 + 1] = tmp[1];
-        positions[i * 3 + 2] = tmp[2];
+        vertices[i] = Vertex(tmp[0] - cx, tmp[1] - cy, tmp[2] - cz, 1.0f);
       }
-      fmt::print("[GLB]   vertices: {}\n", (int)posAcc->count);
-      total_vertices += (size_t)posAcc->count;
-
-      // Read normals (optional)
-      std::vector<float> normals;
       if (norAcc) {
-        normals.resize((size_t)norAcc->count * 3);
-        for (cgltf_size i = 0; i < norAcc->count; ++i) {
-          float tmp[3] = {0, 0, 0};
-          cgltf_accessor_read_float(norAcc, i, tmp, 3);
-          normals[i * 3 + 0] = tmp[0];
-          normals[i * 3 + 1] = tmp[1];
-          normals[i * 3 + 2] = tmp[2];
+        for (cgltf_size i = 0; i < std::min(norAcc->count, posAcc->count); ++i) {
+          float n[3] = {0, 0, 0};
+          cgltf_accessor_read_float(norAcc, i, n, 3);
+          vertices[i].nx = n[0];
+          vertices[i].ny = n[1];
+          vertices[i].nz = n[2];
         }
       }
-
-      // Read texcoords (optional)
-      std::vector<float> texcoords;
       if (uvAcc) {
-        texcoords.resize((size_t)uvAcc->count * 2);
-        for (cgltf_size i = 0; i < uvAcc->count; ++i) {
-          float tmp[2] = {0, 0};
-          cgltf_accessor_read_float(uvAcc, i, tmp, 2);
-          texcoords[i * 2 + 0] = tmp[0];
-          texcoords[i * 2 + 1] = tmp[1];
+        for (cgltf_size i = 0; i < std::min(uvAcc->count, posAcc->count); ++i) {
+          float t[2] = {0, 0};
+          cgltf_accessor_read_float(uvAcc, i, t, 2);
+          vertices[i].u = t[0];
+          vertices[i].v = t[1];
         }
       }
 
-      // Indices
       std::vector<uint32_t> indices;
       if (prim.indices) {
         const cgltf_accessor *idxAcc = prim.indices;
@@ -138,9 +154,39 @@ bool LoadGLB(const string &glbPath, Object &outObject, MaterialInfo *outMat,
         for (cgltf_size i = 0; i < posAcc->count; ++i)
           indices[i] = (uint32_t)i;
       }
-      fmt::print("[GLB]   indices: {}\n", (int)indices.size());
 
-      // Material and texture
+      std::vector<uint32_t> triIndices;
+      if (prim.type == cgltf_primitive_type_triangles) {
+        triIndices = indices;
+      } else if (prim.type == cgltf_primitive_type_triangle_strip) {
+        if (indices.size() >= 3) {
+          triIndices.reserve((indices.size() - 2) * 3);
+          for (size_t i = 0; i + 2 < indices.size(); ++i) {
+            if ((i & 1) == 0) {
+              triIndices.push_back(indices[i + 0]);
+              triIndices.push_back(indices[i + 1]);
+              triIndices.push_back(indices[i + 2]);
+            } else {
+              triIndices.push_back(indices[i + 1]);
+              triIndices.push_back(indices[i + 0]);
+              triIndices.push_back(indices[i + 2]);
+            }
+          }
+        }
+      } else if (prim.type == cgltf_primitive_type_triangle_fan) {
+        if (indices.size() >= 3) {
+          triIndices.reserve((indices.size() - 2) * 3);
+          uint32_t c = indices[0];
+          for (size_t i = 1; i + 1 < indices.size(); ++i) {
+            triIndices.push_back(c);
+            triIndices.push_back(indices[i]);
+            triIndices.push_back(indices[i + 1]);
+          }
+        }
+      } else {
+        fmt::print("[GLB]  skipping unsupported primitive type {}\n", (int)prim.type);
+      }
+
       uint16_t *decodedTex = nullptr;
       int texW = 0, texH = 0;
       float baseColor[3] = {1, 1, 1};
@@ -158,15 +204,12 @@ bool LoadGLB(const string &glbPath, Object &outObject, MaterialInfo *outMat,
         if (bct.texture && bct.texture->image) {
           const cgltf_image *img = bct.texture->image;
           bool ok = false;
-          fmt::print("[GLB]   baseColorTexture present\n");
           if (img->buffer_view && img->buffer_view->buffer && img->buffer_view->buffer->data &&
               bytesDecoder) {
             const uint8_t *ptr = (const uint8_t *)img->buffer_view->buffer->data;
             ptr += img->buffer_view->offset;
             size_t len = img->buffer_view->size;
             const char *mime = img->mime_type ? img->mime_type : "image/png";
-            fmt::print("[GLB]    decoding embedded image bufferView size {} mime {}\n", (int)len,
-                       mime);
             ok = bytesDecoder(ptr, len, mime, decodedTex, texW, texH);
           } else if (img->uri) {
             string uri = img->uri;
@@ -177,8 +220,6 @@ bool LoadGLB(const string &glbPath, Object &outObject, MaterialInfo *outMat,
                 string payload = uri.substr(comma + 1);
                 size_t sc = header.find(';');
                 string mimeType = (sc != string::npos) ? header.substr(0, sc) : header;
-                fmt::print("[GLB]    decoding data URI mime {} ({} bytes payload)\n",
-                           mimeType.c_str(), (int)payload.size());
                 auto b64dec = [](const string &in, std::vector<uint8_t> &out) {
                   static int8_t LUT[256];
                   static bool init = false;
@@ -216,92 +257,25 @@ bool LoadGLB(const string &glbPath, Object &outObject, MaterialInfo *outMat,
               fs::path full = fs::path(dir_of(glbPath)) / uri;
               if (outMat)
                 outMat->texturePath = full.string();
-              fmt::print("[GLB]    decoding external image {}\n", full.string().c_str());
               ok = fileDecoder(full.string(), decodedTex, texW, texH);
             }
           }
           if (ok && outMat)
             outMat->hasTexture = true;
-          if (ok)
-            fmt::print("[GLB]   decoded texture {}x{}\n", texW, texH);
         }
       }
 
-      const bool haveUV = !texcoords.empty();
       const bool haveTexture = decodedTex && texW > 0 && texH > 0;
-      if (!haveTexture) {
-        fmt::print("[GLB]   no texture; using baseColorFactor {:.3f},{:.3f},{:.3f}\n", baseColor[0],
-                   baseColor[1], baseColor[2]);
-      }
-
-      auto emit_triangle = [&](uint32_t i0, uint32_t i1, uint32_t i2) {
-        auto mkV = [&](uint32_t idx) -> Vertex {
-          Vertex v(positions[idx * 3 + 0], positions[idx * 3 + 1], positions[idx * 3 + 2], 1.0f);
-          if (!normals.empty() && (size_t)idx * 3 + 2 < normals.size()) {
-            v.nx = normals[idx * 3 + 0];
-            v.ny = normals[idx * 3 + 1];
-            v.nz = normals[idx * 3 + 2];
-          }
-          if (haveUV && (size_t)idx * 2 + 1 < texcoords.size()) {
-            v.u = texcoords[idx * 2 + 0];
-            v.v = texcoords[idx * 2 + 1];
-          }
-          return v;
-        };
-        Vertex v0 = mkV(i0), v1 = mkV(i1), v2 = mkV(i2);
-        Vector3D e1(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
-        Vector3D e2(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
-        Vector3D n = normalize(Cross(e1, e2));
-        Poly poly(v0, v1, v2, Vertex(), 3, n, haveTexture ? TEXTURED : FLAT);
-        if (haveTexture)
-          poly.SetTexture(decodedTex, texW, texH);
-        else
-          poly.SetColor(baseColor[0], baseColor[1], baseColor[2]);
-        // Update bounds
-        const Vertex vv[3] = {v0, v1, v2};
-        for (int k = 0; k < 3; ++k) {
-          minx = std::min(minx, vv[k].x);
-          miny = std::min(miny, vv[k].y);
-          minz = std::min(minz, vv[k].z);
-          maxx = std::max(maxx, vv[k].x);
-          maxy = std::max(maxy, vv[k].y);
-          maxz = std::max(maxz, vv[k].z);
-        }
-        outObject.add(poly);
-      };
-
-      size_t prim_polys = 0;
-      if (prim.type == cgltf_primitive_type_triangles) {
-        for (size_t i = 0; i + 2 < indices.size(); i += 3) {
-          emit_triangle(indices[i + 0], indices[i + 1], indices[i + 2]);
-          prim_polys++;
-        }
-      } else if (prim.type == cgltf_primitive_type_triangle_strip) {
-        for (size_t i = 0; i + 2 < indices.size(); ++i) {
-          if ((i & 1) == 0) {
-            emit_triangle(indices[i + 0], indices[i + 1], indices[i + 2]);
-          } else {
-            emit_triangle(indices[i + 1], indices[i + 0], indices[i + 2]);
-          }
-          prim_polys++;
-        }
-      } else if (prim.type == cgltf_primitive_type_triangle_fan) {
-        uint32_t c = indices[0];
-        for (size_t i = 1; i + 1 < indices.size(); ++i) {
-          emit_triangle(c, indices[i], indices[i + 1]);
-          prim_polys++;
-        }
-      } else {
-        // Unsupported primitive type; skip
-      }
-      total_polys += prim_polys;
-      fmt::print("[GLB]  emitted {} polys for primitive {}\n", (int)prim_polys, (int)primIndex);
+      outObject.AddMesh(vertices, triIndices, haveTexture ? TEXTURED : COLORED, decodedTex, texW,
+                        texH, baseColor[0], baseColor[1], baseColor[2]);
+      total_vertices += vertices.size();
+      total_tris += triIndices.size() / 3;
+      fmt::print("[GLB]  emitted mesh prim={} verts={} tris={} textured={}\n", (int)primIndex,
+                 (int)vertices.size(), (int)(triIndices.size() / 3), haveTexture);
     }
   }
 
-  fmt::print("[GLB] total vertices {} total polys {}\n", (int)total_vertices, (int)total_polys);
-
-  // print out the bounds of the loaded model
+  fmt::print("[GLB] total vertices {} total tris {}\n", (int)total_vertices, (int)total_tris);
   fmt::print("[GLB] model bounds: min ({:.3f}, {:.3f}, {:.3f}) max ({:.3f}, {:.3f}, {:.3f})\n",
              minx, miny, minz, maxx, maxy, maxz);
 

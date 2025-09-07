@@ -112,6 +112,13 @@ bool LoadOBJ(const string &objPath, Object &outObject, MaterialInfo *outMat,
   face.reserve(8);
 
   string line;
+  // Accumulate one mesh per material group for simplicity
+  std::vector<Vertex> vertices;
+  std::vector<uint32_t> indices;
+  RenderType curRT = COLORED;
+  const unsigned short *curTex = nullptr;
+  int curTW = 0, curTH = 0;
+  float curR = 1.0f, curG = 1.0f, curB = 1.0f;
   while (std::getline(f, line)) {
     trim(line);
     if (line.empty() || line[0] == '#')
@@ -125,7 +132,51 @@ bool LoadOBJ(const string &objPath, Object &outObject, MaterialInfo *outMat,
       ss >> mtl;
       loadMTL(base / mtl, mtls);
     } else if (key == "usemtl") {
+      // Flush previous mesh if we were accumulating
+      if (!vertices.empty() && !indices.empty()) {
+        outObject.AddMesh(vertices, indices, curRT, curTex, curTW, curTH, curR, curG, curB);
+        vertices.clear();
+        indices.clear();
+      }
       ss >> activeMtl;
+      // Set material defaults for new group
+      curRT = COLORED;
+      curTex = nullptr;
+      curTW = curTH = 0;
+      curR = curG = curB = 1.0f;
+      if (!activeMtl.empty()) {
+        auto it = mtls.find(activeMtl);
+        if (it != mtls.end()) {
+          const auto &m = it->second;
+          if (!m.map_kd.empty()) {
+            fs::path tpath = base / m.map_kd;
+            if (outMat) {
+              outMat->hasTexture = true;
+              outMat->texturePath = tpath.string();
+            }
+            if (decoder) {
+              uint16_t *texPtr = nullptr;
+              int tw = 0, th = 0;
+              if (decoder(tpath.string(), texPtr, tw, th) && texPtr && tw > 0 && th > 0) {
+                curRT = TEXTURED;
+                curTex = texPtr;
+                curTW = tw;
+                curTH = th;
+              }
+            }
+          } else {
+            curRT = COLORED;
+            curR = m.kd[0];
+            curG = m.kd[1];
+            curB = m.kd[2];
+            if (outMat) {
+              outMat->kd[0] = curR;
+              outMat->kd[1] = curG;
+              outMat->kd[2] = curB;
+            }
+          }
+        }
+      }
     } else if (key == "v") {
       Vec3 v{};
       ss >> v.x >> v.y >> v.z;
@@ -148,59 +199,36 @@ bool LoadOBJ(const string &objPath, Object &outObject, MaterialInfo *outMat,
       }
       if (face.size() < 3)
         continue;
-      // Triangulate face[0], face[i-1], face[i]
-      for (size_t i = 2; i < face.size(); ++i) {
-        FaceIdx idx0 = face[0], idx1 = face[i - 1], idx2 = face[i];
-        auto mkVertex = [&](const FaceIdx &idx) -> Vertex {
-          const Vec3 &p = pos[idx.v];
-          Vertex v(p.x, p.y, p.z, 1.0f);
-          if (idx.vt >= 0 && (size_t)idx.vt < tex.size()) {
-            v.u = tex[idx.vt].u;
-            v.v = tex[idx.vt].v;
-          }
-          if (idx.vn >= 0 && (size_t)idx.vn < nor.size()) {
-            v.nx = nor[idx.vn].x;
-            v.ny = nor[idx.vn].y;
-            v.nz = nor[idx.vn].z;
-          }
-          return v;
-        };
-        Vertex v0 = mkVertex(idx0);
-        Vertex v1 = mkVertex(idx1);
-        Vertex v2 = mkVertex(idx2);
-        Poly poly(v0, v1, v2, Vertex(), 3, Vector3D(0, 0, 1), TEXTURED);
-        // Assign material data and optionally decode texture
-        if (!activeMtl.empty()) {
-          auto it = mtls.find(activeMtl);
-          if (it != mtls.end()) {
-            const auto &m = it->second;
-            if (!m.map_kd.empty()) {
-              fs::path tpath = base / m.map_kd;
-              if (outMat) {
-                outMat->hasTexture = true;
-                outMat->texturePath = tpath.string();
-              }
-              if (decoder) {
-                uint16_t *texPtr = nullptr;
-                int tw = 0, th = 0;
-                if (decoder(tpath.string(), texPtr, tw, th) && texPtr && tw > 0 && th > 0) {
-                  poly.SetTexture(texPtr, tw, th);
-                }
-              }
-            } else {
-              poly.SetRenderType(COLORED);
-              poly.SetColor(m.kd[0], m.kd[1], m.kd[2]);
-              if (outMat) {
-                outMat->kd[0] = m.kd[0];
-                outMat->kd[1] = m.kd[1];
-                outMat->kd[2] = m.kd[2];
-              }
-            }
-          }
+      // Triangulate face[0], face[i-1], face[i], push vertices and indices
+      auto push_vertex = [&](const FaceIdx &idx) -> uint32_t {
+        Vertex v;
+        const Vec3 &p = pos[idx.v];
+        v = Vertex(p.x, p.y, p.z, 1.0f);
+        if (idx.vt >= 0 && (size_t)idx.vt < tex.size()) {
+          v.u = tex[idx.vt].u;
+          v.v = tex[idx.vt].v;
         }
-        outObject.add(poly);
+        if (idx.vn >= 0 && (size_t)idx.vn < nor.size()) {
+          v.nx = nor[idx.vn].x;
+          v.ny = nor[idx.vn].y;
+          v.nz = nor[idx.vn].z;
+        }
+        vertices.push_back(v);
+        return static_cast<uint32_t>(vertices.size() - 1);
+      };
+      for (size_t i = 2; i < face.size(); ++i) {
+        uint32_t i0 = push_vertex(face[0]);
+        uint32_t i1 = push_vertex(face[i - 1]);
+        uint32_t i2 = push_vertex(face[i]);
+        indices.push_back(i0);
+        indices.push_back(i1);
+        indices.push_back(i2);
       }
     }
+  }
+  // Flush final accumulated mesh
+  if (!vertices.empty() && !indices.empty()) {
+    outObject.AddMesh(vertices, indices, curRT, curTex, curTW, curTH, curR, curG, curB);
   }
   return true;
 }

@@ -162,3 +162,8 @@ public:
   Poly &operator=(const Poly &rhs);
   bool operator==(const Poly &rhs) const; // Incomplete implementation!
 };
+
+// Indexed rendering helper: rasterize one transformed triangle
+void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, RenderType rt,
+                       const unsigned short *texture, int texwidth, int texheight, float cr,
+                       float cg, float cb);

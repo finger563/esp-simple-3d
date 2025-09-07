@@ -790,6 +790,9 @@ void updatePixels(uint16_t *dst) {
 
   renderlist.clear();
   renderptrs.clear();
+  std::vector<Vertex> frameVertices;
+  std::vector<uint32_t> frameIndices;
+  std::vector<Object::DrawView> drawList;
 
   dynamiclist.clear();
   std::vector<Object_s> dynamic = player->Objects();
@@ -815,6 +818,9 @@ void updatePixels(uint16_t *dst) {
     it.TransformToPerspective(perspectiveProjection);
     // zero-copy append
     it.AppendRenderPointers(renderptrs);
+    // indexed pipeline append (if any meshes present)
+    it.AppendDrawItems(worldToCamera, perspectiveProjection, projectionToPixel, frameVertices,
+                       frameIndices, drawList);
   }
 
   for (auto &it : objectlist) {
@@ -823,9 +829,13 @@ void updatePixels(uint16_t *dst) {
     it.TransformToPerspective(perspectiveProjection);
     // zero-copy append
     it.AppendRenderPointers(renderptrs);
+    // indexed pipeline append
+    it.AppendDrawItems(worldToCamera, perspectiveProjection, projectionToPixel, frameVertices,
+                       frameIndices, drawList);
   }
 
-  logger.debug("Rendering {} primitives", renderptrs.size());
+  logger.debug("Rendering {} polys (legacy) and {} indexed draws ({} tris)", renderptrs.size(),
+               drawList.size(), frameIndices.size() / 3);
 
 #define ENABLE_FAST_RASTERIZATION 0
 
@@ -856,6 +866,22 @@ void updatePixels(uint16_t *dst) {
     }
   }
 #endif
+
+  // Indexed pipeline rasterization
+  if (!drawList.empty()) {
+    for (const auto &d : drawList) {
+      const size_t end = d.baseIndex + d.indexCount;
+      for (size_t i = d.baseIndex; i + 2 < end; i += 3) {
+        const uint32_t i0 = d.baseVertex + frameIndices[i + 0];
+        const uint32_t i1 = d.baseVertex + frameIndices[i + 1];
+        const uint32_t i2 = d.baseVertex + frameIndices[i + 2];
+        const Vertex &a = frameVertices[i0];
+        const Vertex &b = frameVertices[i1];
+        const Vertex &c = frameVertices[i2];
+        RasterizeTriangle(a, b, c, d.rType, d.texture, d.texwidth, d.texheight, d.r, d.g, d.b);
+      }
+    }
+  }
 }
 
 /////////////////////////////

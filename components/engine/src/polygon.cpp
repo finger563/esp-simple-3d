@@ -1,6 +1,24 @@
 #include "polygon.hpp"
 #include "render_layout.hpp"
 #include <cmath>
+// Helper to rasterize a single triangle given transformed vertices
+void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, RenderType rt,
+                       const unsigned short *texture, int texwidth, int texheight, float cr,
+                       float cg, float cb) {
+  // Build a temporary Poly-like structure for reuse of existing pipeline pieces
+  Poly p(a, b, c, Vertex(), 3, Vector3D(0, 0, 1), rt);
+  if (rt == TEXTURED && texture) {
+    p.SetTexture(texture, texwidth, texheight);
+  } else if (rt == COLORED) {
+    p.SetColor(cr, cg, cb);
+  }
+  p.visible = true;
+  // Minimal setup for scanline: sort and rasterize fast on a single y span
+  p.YSort(p.ySorted);
+  // We can call the full path which walks y and calls RasterizeFast per scanline
+  p.SetupRasterization();
+  p.RasterizeFull();
+}
 
 // General Transformation Methods, only operate on x,y,z,w of vertices
 void Poly::Transform(const Matrix &_m) {

@@ -550,15 +550,71 @@ void Object::AppendRenderPointers(std::vector<Poly *> &out) {
   }
 }
 
+void Object::AppendDrawItems(const Matrix &view, const Matrix &proj, const Matrix &viewport,
+                             std::vector<Vertex> &outVertices, std::vector<uint32_t> &outIndices,
+                             std::vector<DrawView> &outDraws) const {
+  // Transform-and-append unique vertices for each mesh; rebase indices
+  for (const auto &mesh : meshes) {
+    const size_t baseVertex = outVertices.size();
+    const size_t baseIndex = outIndices.size();
+    outVertices.reserve(baseVertex + mesh.vertices.size());
+    outIndices.reserve(baseIndex + mesh.indices.size());
+    // Transform vertices: view -> projection -> homogeneous divide -> viewport
+    for (const auto &vin : mesh.vertices) {
+      Vertex v = vin;
+      v.TransformToCamera(view);
+      v.TransformToPerspective(proj);
+      v.HomogeneousDivide();
+      v.Transform(viewport);
+      outVertices.push_back(v);
+    }
+    // Copy local indices (no rebase here; we use baseVertex in the draw view)
+    outIndices.insert(outIndices.end(), mesh.indices.begin(), mesh.indices.end());
+    DrawView d;
+    d.baseVertex = baseVertex;
+    d.baseIndex = baseIndex;
+    d.indexCount = mesh.indices.size();
+    d.rType = mesh.rType;
+    d.texture = mesh.texture;
+    d.texwidth = mesh.texwidth;
+    d.texheight = mesh.texheight;
+    d.r = mesh.r;
+    d.g = mesh.g;
+    d.b = mesh.b;
+    outDraws.push_back(d);
+  }
+}
+
 bool Object::GetLocalBounds(Point3D &outMin, Point3D &outMax) const {
-  if (master.empty())
-    return false;
   bool initialized = false;
   Point3D mn, mx;
+  // Consider legacy polys
   for (const auto &poly : master) {
     int n = poly.numVertices;
     for (int i = 0; i < n; ++i) {
       const Vertex &v = poly.v[i];
+      if (!initialized) {
+        mn = mx = Point3D(v.x, v.y, v.z);
+        initialized = true;
+      } else {
+        if (v.x < mn.x)
+          mn.x = v.x;
+        if (v.y < mn.y)
+          mn.y = v.y;
+        if (v.z < mn.z)
+          mn.z = v.z;
+        if (v.x > mx.x)
+          mx.x = v.x;
+        if (v.y > mx.y)
+          mx.y = v.y;
+        if (v.z > mx.z)
+          mx.z = v.z;
+      }
+    }
+  }
+  // Consider indexed meshes
+  for (const auto &m : meshes) {
+    for (const auto &v : m.vertices) {
       if (!initialized) {
         mn = mx = Point3D(v.x, v.y, v.z);
         initialized = true;
@@ -592,6 +648,22 @@ bool Object::GetWorldBounds(Point3D &outMin, Point3D &outMax) const {
   outMin = mn + position;
   outMax = mx + position;
   return true;
+}
+
+void Object::AddMesh(const std::vector<Vertex> &vertices, const std::vector<uint32_t> &indices,
+                     RenderType rt, const unsigned short *texPtr, int texW, int texH, float cr,
+                     float cg, float cb) {
+  Mesh m;
+  m.vertices = vertices;
+  m.indices = indices;
+  m.rType = rt;
+  m.texture = texPtr;
+  m.texwidth = texW;
+  m.texheight = texH;
+  m.r = cr;
+  m.g = cg;
+  m.b = cb;
+  meshes.push_back(std::move(m));
 }
 
 ////////////////////////////////////////
