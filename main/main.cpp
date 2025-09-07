@@ -34,6 +34,10 @@ static uint8_t *fb1 = nullptr;
 static uint8_t *vram0 = nullptr;
 static uint8_t *vram1 = nullptr;
 
+static int frame_count = 0;
+static float FPS = 0;
+static auto start = esp_timer_get_time();
+
 // object index
 static int object_index = 0;
 static std::vector<Object> modelObjs;
@@ -453,6 +457,11 @@ extern "C" void app_main(void) {
 
   auto button_callback = [&](const auto &event) {
     if (event.active) {
+      logger.info("FPS = {:0.02f}", FPS);
+      // reset the FPS counter
+      frame_count = 0;
+      start = esp_timer_get_time();
+
       // increment the object index and update the render list
       std::lock_guard<std::mutex> lock(object_mutex);
       object_index++;
@@ -632,6 +641,10 @@ extern "C" void app_main(void) {
       objectlist.clear();
       objectlist.emplace_back(modelObjs[object_index]);
 
+      // reset the FPS counter
+      frame_count = 0;
+      start = esp_timer_get_time();
+
       bounds = get_bounds();
       // set the size of the axes to be slightly larger than the bounds of the object
       float axis_size = 0.0f;
@@ -712,7 +725,6 @@ extern "C" void app_main(void) {
          // swap the frame buffer index
          fb_index = fb_index ^ 0x01;
          // Move camera to orbit around the loaded object and look at it
-         static auto start = esp_timer_get_time();
          uint64_t now = esp_timer_get_time();
          float t = (now - start) / 1'000'000.0f;
          // Cylindrical orbit: compute planar extents (XZ) and center
@@ -741,18 +753,14 @@ extern "C" void app_main(void) {
          float camY = target.y + std::max(extentY * 0.8f, 1.0f);
          Camera &eye = player->Eye();
          auto eyePos = Point3D(camX, camY, camZ);
-
          // Look from orbit position to the target center using explicit LookAt
          eye.LookAt(eyePos, target, Vector3D(0, 1, 0));
-
-         static int frame_count = 0;
-         frame_count++;
-
          // render the scene
          updatePixels(fb_ptr);
          // push the frame to the video task
          push_frame(fb_ptr);
-         float FPS = frame_count / t;
+         frame_count++;
+         FPS = frame_count / t;
          logger.debug("FPS = {:0.02f}", FPS);
          // we don't want to stop the task, so return false
          return false;
