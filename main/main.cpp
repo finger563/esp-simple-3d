@@ -268,11 +268,11 @@ public:
   World &Level() { return level; }
   void Level(const World &l) {
     level = l;
-    objectlist = level.GetRenderList();
+    objectlist = level.GetObjectList();
   }
   void Level(const long id) {
     level = World(id);
-    objectlist = level.GetRenderList();
+    objectlist = level.GetObjectList();
   }
 
   void Register() { registered = true; }
@@ -755,6 +755,16 @@ extern "C" void app_main(void) {
          auto eyePos = Point3D(camX, camY, camZ);
          // Look from orbit position to the target center using explicit LookAt
          eye.LookAt(eyePos, target, Vector3D(0, 1, 0));
+
+         // we want to have the first object in the world move back and forth
+         // along the world x-axis, so apply the transform
+         auto new_pos =
+             Point3D(std::sin(t * 0.5f) * std::max(bounds.maxx, std::abs(bounds.minx)), 0.0f, 0.0f);
+         auto m_trans = Matrix::Translation(new_pos); // move back and forth along x-axis
+         // apply the translation to the first object in the world
+         // objectlist[0].Transform(m_trans);
+         objectlist[0].SetPosition(new_pos);
+
          // render the scene
          updatePixels(fb_ptr);
          // push the frame to the video task

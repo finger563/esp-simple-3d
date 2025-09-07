@@ -66,7 +66,7 @@ bool World::updateList() {
 }
 
 // returns renderList
-std::vector<Object> World::GetRenderList() { return temp; }
+std::vector<Object> World::GetObjectList() { return temp; }
 
 ///////////////////////////////////////////////////////
 ///////////////// Custom Worlds///////////////////////
@@ -75,27 +75,18 @@ std::vector<Object> World::GetRenderList() { return temp; }
 // Pre-condition: master list is already cleared
 // basic world
 void World::basicWorld() {
-  Poly testpoly =
-      Poly(Vertex(-6.666, 6.666, 0, 1, 0, 0), Vertex(13.333, 6.666, 0, 1, 1, 0),
-           Vertex(-6.666, -13.333, 0, 1, 0, 1), Vertex(), 3, Vector3D(0, 0, -1), TEXTURED);
-
   Object testobj = Object(box_tex, box_tex_width, box_tex_height, Vector3D(), Point3D(-10, -5, 15));
   Object testobj2 = Object(box_tex, box_tex_width, box_tex_height, Vector3D(), Point3D(10, -5, 15));
   Object testobj3 = Object(stone_tex, stone_tex_width, stone_tex_height);
-  Object testobj4 =
-      Object(testpoly, box_tex, box_tex_width, box_tex_height, Vector3D(), Point3D(0, 0, 15));
 
   testobj.GenerateCube();
-
   testobj2.GenerateCube();
   testobj2.SetRenderType(COLORED);
-
   testobj3.GenerateFloor(75, -10);
 
   master.push_back(testobj);
   master.push_back(testobj2);
   master.push_back(testobj3);
-  master.push_back(testobj4);
 }
 
 void World::boxedIn() {

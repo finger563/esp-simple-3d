@@ -9,6 +9,7 @@ Object::Object() {
   rx = 0;
   ry = 0;
   rz = 0;
+  meshTransform.SetIdentity();
 }
 
 // Alternate texture, veloctity, heading, position
@@ -64,12 +65,16 @@ void Object::Transform(Matrix &m) {
   for (auto &poly : master) {
     poly.Transform(m);
   }
+  // Accumulate local mesh transform (rotation/scale)
+  meshTransform = meshTransform * m;
 }
 
 void Object::Translate(Vector3D &v) {
   for (auto &poly : master) {
     poly.Translate(v.x, v.y, v.z);
   }
+  // For meshes, keep translation in position to be applied at draw time
+  position = position + v;
 }
 
 void Object::RotateToHeading() {
@@ -515,10 +520,11 @@ void Object::AppendDrawItems(const Matrix &view, const Matrix &proj, const Matri
     const size_t baseIndex = outIndices.size();
     outVertices.reserve(baseVertex + mesh.vertices.size());
     outIndices.reserve(baseIndex + mesh.indices.size());
-    // Transform vertices: view -> projection -> homogeneous divide -> viewport
+    // Transform vertices: mesh local -> meshTransform -> translate(position) -> view -> proj ->
+    // divide -> viewport
     for (const auto &vin : mesh.vertices) {
       Vertex v = vin;
-      // apply object local->world translation
+      v.Transform(meshTransform);
       v.Translate(Vector3D(position.x, position.y, position.z));
       v.TransformToCamera(view);
       v.TransformToPerspective(proj);

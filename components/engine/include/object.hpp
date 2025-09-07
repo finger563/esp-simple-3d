@@ -152,6 +152,7 @@ private:
   std::vector<Poly> master;
   std::vector<Poly> temp;
   std::vector<Mesh> meshes; // indexed meshes (preferred)
+  Matrix meshTransform;     // local transform (rotation/scale) applied to meshes
   Point3D position;
   Vector3D heading, velocity;
   float theta, phi;
