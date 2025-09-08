@@ -16,6 +16,12 @@ public:
     return m;
   }
 
+  static Matrix Identity() {
+    Matrix m;
+    m.SetIdentity();
+    return m;
+  }
+
   static Matrix LookVector(const Vector3D &eye, const Vector3D &look, const Vector3D &up);
 
   static Matrix Translation(const Vector3D &t) { return Translation(t.x, t.y, t.z); }

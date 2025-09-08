@@ -55,8 +55,11 @@ public:
   void GenerateRectangularPrism(const Vector3D &halfSize, const Matrix &transform,
                                 const Vector3D &color);
 
+  void GenerateShot(const Matrix &transform);
   void GenerateShot(const Vector3D &pos, float theta_, float phi_);
 
+  void GeneratePlayer(const Matrix &transform, const unsigned short *texture = nullptr,
+                      const int texWid = 0, const int texHgt = 0);
   void GeneratePlayer(const Vector3D &pos, float theta_, float phi_,
                       const unsigned short *texture = nullptr, const int texWid = 0,
                       const int texHgt = 0);

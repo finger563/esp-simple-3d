@@ -20,6 +20,8 @@ using hal = espp::EspBox;
 #include "png.hpp"
 #include <filesystem>
 
+#include "player.hpp"
+
 static constexpr size_t MAX_NAME_LEN = 32;
 
 using namespace std::chrono_literals;
@@ -63,8 +65,7 @@ static constexpr size_t fb_size = hal::lcd_width() * hal::lcd_height() * sizeof(
 static Matrix worldToCamera = Matrix();
 static Matrix perspectiveProjection = Matrix();
 static Matrix projectionToPixel = Matrix();
-static std::vector<Object> objectlist;  // used for the static world objects
-static std::vector<Object> dynamiclist; // used for dynamic objects received from server
+static std::vector<Object> objectlist; // used for the static world objects
 
 uint16_t *defaulttexture = nullptr;
 size_t defaulttexture_width = 0;
@@ -125,197 +126,7 @@ Bounds get_bounds() {
 };
 static Bounds bounds;
 
-enum ObjectType { // These are the types of dynamic objects which need to be tracked by the server
-  PLAYER,
-  SHOT
-};
-
-struct Object_s {
-  ObjectType type{SHOT};
-  size_t id{0};
-  double x, y, z, // position vector
-      theta, phi, // heading vector
-      life,       // time to live
-      vx, vy, vz; // velocity vector
-  std::string content_;
-  std::string killedby_;
-
-  Object_s() {}
-  Object_s(ObjectType t, size_t i, std::string_view c)
-      : type(t)
-      , id(i)
-      , content_(c) {}
-
-  Object_s(const Object_s &a) = default;
-  Object_s &operator=(const Object_s &a) = default;
-
-  void SetID(size_t i) { id = i; }
-  void SetType(ObjectType t) { type = t; }
-  void SetContent(std::string_view n) { content_ = n; }
-  void SetKilledby(std::string_view k) { killedby_ = k; }
-  void SetPos(const double _x, const double _y, const double _z) {
-    x = _x;
-    y = _y;
-    z = _z;
-  }
-  void SetHeading(const double _t, const double _p) {
-    theta = _t;
-    phi = _p;
-  }
-  void SetLife(const double _l) { life = _l; }
-  void SetVelocity(const double _x, const double _y, const double _z) {
-    vx = _x;
-    vy = _y;
-    vz = _z;
-  }
-
-  bool Update(const double time) {
-    double tr = cos(phi);
-    double tx = tr * sin(theta), ty = sin(phi), tz = tr * cos(theta);
-    double mag = sqrt(tx * tx + ty * ty + tz * tz);
-    tx = tx / mag;
-    ty = ty / mag;
-    tz = tz / mag;
-    x += tx * vz * time;
-    y += ty * vz * time;
-    z += tz * vz * time;
-    life = life - time;
-    return (life > 0);
-  }
-
-  bool operator==(const Object_s &b) {
-    if (id == b.id && type == b.type) {
-      return true;
-    } else {
-      return false;
-    }
-  }
-};
-
-struct Player_s {
-  std::string name;
-  size_t id{0};
-  double x, y, z, // position vector
-      theta, phi, // heading vector
-      life,       // time to live
-      vx, vy, vz; // velocity vector
-
-  Player_s() {}
-  Player_s(const Player_s &s) = default;
-  Player_s(std::string_view n, size_t i)
-      : name(n)
-      , id(i) {}
-
-  Player_s &operator=(const Player_s &s) = default;
-
-  void SetName(std::string_view n) { name = n; }
-  void SetID(size_t i) { id = i; }
-  void SetPos(const double _x, const double _y, const double _z) {
-    x = _x;
-    y = _y;
-    z = _z;
-  }
-  void SetHeading(const double _t, const double _p) {
-    theta = _t;
-    phi = _p;
-  }
-  void SetLife(const double _l) { life = _l; }
-  void SetVelocity(const double _x, const double _y, const double _z) {
-    vx = _x;
-    vy = _y;
-    vz = _z;
-  }
-
-  bool operator==(const Player_s &b) {
-    if (id == b.id && name == b.name) {
-      return true;
-    } else {
-      return false;
-    }
-  }
-};
-
-class Player_c {
-private:
-  bool registered{false};
-  Player_s info;
-  std::vector<Object_s> objects;
-  Camera eye;
-  World level;
-
-public:
-  Player_c()
-      : info()
-      , eye() {}
-  Player_c(const Player_s &s)
-      : info(s)
-      , eye() {}
-  Player_c(Player_c &s) { *this = s; }
-  ~Player_c() {}
-
-  Player_c &operator=(Player_c &s) = default;
-
-  Player_s Info() const { return info; }
-  void Info(const Player_s &s) { info = s; }
-
-  std::vector<Object_s> Objects() { return objects; }
-
-  Camera &Eye() { return eye; }
-  void Eye(const Camera &e) { eye = e; }
-
-  World &Level() { return level; }
-  void Level(const World &l) {
-    level = l;
-    objectlist = level.GetObjectList();
-  }
-  void Level(const long id) {
-    level = World(id);
-    objectlist = level.GetObjectList();
-  }
-
-  void Register() { registered = true; }
-  void Leave() { registered = false; }
-  bool Registered() { return registered; }
-
-  void Create(Object_s &a) { objects.push_back(a); }
-
-  void Move(Object_s &a) {
-
-    if (a.id == info.id && a.type == PLAYER) {
-      info.life = a.life;
-    } else {
-      for (auto &obj : objects) {
-        if (obj.id == a.id && obj.type == a.type) {
-          obj.SetPos(a.x, a.y, a.z);
-          obj.SetHeading(a.theta, a.phi);
-          obj.SetLife(a.life);
-          obj.SetVelocity(a.vx, a.vy, a.vz);
-          return;
-        }
-      }
-    }
-  }
-
-  void Update(const double time) {
-    for (auto &object : objects) {
-      if (object.type != PLAYER) {
-        object.Update(time);
-      }
-    }
-  }
-
-  void Remove(const ObjectType t, const size_t _id) {
-    for (auto it = objects.begin(); it != objects.end();) {
-      if (it->type == t && it->id == _id) {
-        it = objects.erase(it);
-      } else {
-        ++it;
-      }
-    }
-  }
-};
-
-static std::unique_ptr<Player_c> player;
+static std::unique_ptr<Player> player;
 
 extern "C" void app_main(void) {
   logger.info("Bootup");
@@ -492,6 +303,7 @@ extern "C" void app_main(void) {
       } else {
         logger.warn("No object selected, using default world");
         player->Level(1); // load default level if no model found
+        objectlist = player->Level().GetObjectList();
       }
     }
   };
@@ -507,7 +319,7 @@ extern "C" void app_main(void) {
   clear_screen();
 
   // make the player
-  player = std::make_unique<Player_c>(Player_s("Player1", 1));
+  player = std::make_unique<Player>(PlayerInfo("Player1", 1));
   // Try to load a model from /models. If present, replace world with that object.
   {
     asset::TextureDecodeFn fileDecoder = [&](const std::string &path, uint16_t *&outPtr, int &w,
@@ -662,6 +474,7 @@ extern "C" void app_main(void) {
 
     } else {
       player->Level(1); // load default level if no model found
+      objectlist = player->Level().GetObjectList();
     }
   }
 
@@ -807,30 +620,6 @@ void updatePixels(uint16_t *dst) {
   std::vector<Vertex> frameVertices;
   std::vector<uint32_t> frameIndices;
   std::vector<Object::DrawView> drawList;
-
-  dynamiclist.clear();
-  std::vector<Object_s> dynamic = player->Objects();
-  Object tempobj;
-  for (const auto &it : dynamic) {
-    switch (it.type) {
-    case PLAYER:
-      tempobj.GeneratePlayer(Point3D(it.x, it.y, it.z), it.theta, it.phi);
-      break;
-    case SHOT:
-      tempobj.GenerateShot(Point3D(it.x, it.y, it.z), it.theta, it.phi);
-      break;
-    default:
-      break;
-    }
-    tempobj.SetVelocity(Vector3D(it.vx, it.vy, it.vz));
-    dynamiclist.push_back(tempobj);
-  }
-
-  for (auto &it : dynamiclist) {
-    // indexed pipeline append (if any meshes present)
-    it.AppendDrawItems(worldToCamera, perspectiveProjection, projectionToPixel, frameVertices,
-                       frameIndices, drawList);
-  }
 
   for (auto &it : objectlist) {
     // indexed pipeline append

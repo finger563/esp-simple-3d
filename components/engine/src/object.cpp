@@ -237,7 +237,7 @@ void Object::GenerateRectangularPrism(const Vector3D &halfSize, const Matrix &tr
   AddMesh(vertices, indices, COLORED, nullptr, 0, 0, color.x, color.y, color.z);
 }
 
-void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
+void Object::GenerateShot(const Matrix &transform) {
   std::vector<Vertex> vertices;
   vertices.reserve(3);
   vertices.emplace_back(0, 0, 4.0f);
@@ -246,30 +246,39 @@ void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
   std::vector<uint32_t> indices{0, 1, 2};
   AddMesh(vertices, indices, COLORED, tex, texWidth, texHeight, 1.0f, 1.0f, 1.0f);
 
+  meshTransform = transform;
+
   rx = 0;
   ry = 0;
   rz = 0;
-  theta = 0;
-  phi = 0;
 
+  RotateToHeading();
+}
+
+void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
   theta = theta_;
   phi = phi_;
   position = pos;
-  // SetRenderType(FLAT);
+  GenerateShot(Matrix::Identity());
+}
+
+void Object::GeneratePlayer(const Matrix &transform, const unsigned short *texture,
+                            const int texWid, const int texHgt) {
+  tex = texture;
+  texWidth = texWid;
+  texHeight = texHgt;
+  GenerateCube();
+  meshTransform = transform;
+  SetRenderType(TEXTURED);
   RotateToHeading();
 }
 
 void Object::GeneratePlayer(const Vector3D &pos, float theta_, float phi_,
                             const unsigned short *texture, const int texWid, const int texHgt) {
-  tex = texture;
-  texWidth = texWid;
-  texHeight = texHgt;
-  GenerateCube();
   theta = theta_;
   phi = phi_;
   position = pos;
-  SetRenderType(TEXTURED);
-  RotateToHeading();
+  GeneratePlayer(Matrix::Identity(), texture, texWid, texHgt);
 }
 
 bool Object::Update(int time) { return true; }
