@@ -52,29 +52,27 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
   // Dedicated wireframe path using Bresenham's algorithm for edges only
   if (rt == WIREFRAME) {
     auto draw_edge = [&](const Vertex &p0, const Vertex &p1) {
-      int x0 = (int)std::lround(p0.x);
-      int y0 = (int)std::lround(p0.y);
-      int x1 = (int)std::lround(p1.x);
-      int y1 = (int)std::lround(p1.y);
-      int dx = std::abs(x1 - x0);
-      int dy = std::abs(y1 - y0);
-      int sx = (x0 < x1) ? 1 : -1;
-      int sy = (y0 < y1) ? 1 : -1;
+      int x0 = (int)std::lround(p0.x), y0 = (int)std::lround(p0.y);
+      int x1 = (int)std::lround(p1.x), y1 = (int)std::lround(p1.y);
+      int dx = std::abs(x1 - x0), dy = std::abs(y1 - y0);
+      int sx = (x0 < x1) ? 1 : -1, sy = (y0 < y1) ? 1 : -1;
       int err = dx - dy;
-      int steps = std::max(dx, dy);
-      if (steps <= 0)
-        steps = 1;
-      float dez = (p1.ez - p0.ez) / (float)steps;
-      float dhw = (p1.hw - p0.hw) / (float)steps;
-      float ez = p0.ez;
-      float hw = p0.hw;
-      uint16_t color =
+
+      // steps = number of plotted pixels; denom guards division for coincident points
+      const int steps = std::max(dx, dy) + 1;
+      const float denom = (float)std::max(steps - 1, 1);
+      float ez = p0.ez, hw = p0.hw;
+      const float dez = (p1.ez - p0.ez) / denom;
+      const float dhw = (p1.hw - p0.hw) / denom;
+
+      const uint16_t color =
           RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
+
       for (int i = 0;; ++i) {
         if ((unsigned)y0 < (unsigned)SIZE_Y && (unsigned)x0 < (unsigned)SIZE_X) {
-          float zval = ez / hw;
           float *zrow = z_buffer + y0 * SIZE_X;
           uint16_t *drow = display_buffer + y0 * SIZE_X;
+          const float zval = ez / hw;
           if (zval < zrow[x0]) {
             zrow[x0] = zval;
             drow[x0] = color;
@@ -82,19 +80,23 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
         }
         if (x0 == x1 && y0 == y1)
           break;
+
         int e2 = 2 * err;
         if (e2 > -dy) {
           err -= dy;
           x0 += sx;
-          ez += dez;
-          hw += dhw;
         }
         if (e2 < dx) {
           err += dx;
           y0 += sy;
         }
+
+        // advance depth each plotted pixel
+        ez += dez;
+        hw += dhw;
       }
     };
+
     draw_edge(v0, v1);
     draw_edge(v1, v2);
     draw_edge(v2, v0);
