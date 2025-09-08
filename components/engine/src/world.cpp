@@ -1,101 +1,42 @@
 #include "world.hpp"
-#include "camera.hpp"
 
-// constructor
-World::World()
-    : id(0) {
-  library(id);
-}
-
-// alternate constructor
-World::World(long worldID)
-    : id(worldID) {
-  library(id);
-}
-
-// destructor
-World::~World() {}
-
-// allows world change
 void World::changeWorld(long worldID) {
   id = worldID;
-  library(id);
-}
-
-void World::masterClear() { master.clear(); }
-
-// clear Temp
-void World::tempClear() { temp.clear(); }
-
-// adds correct world to temp list
-void World::library(long worldID) {
+  objects.clear();
   switch (worldID) {
   case 0:
-    masterClear();
     basicWorld();
-    updateList();
     break;
   case 1:
-    masterClear();
     boxedIn();
-    updateList();
     break;
   default:
-    masterClear();
-    tempClear();
+    break;
   }
-}
-
-// Updates Temp list with any changes to the master list
-bool World::updateList() {
-  tempClear();
-
-  if (!master.empty()) {
-    // makes copy from master to temp
-    for (const auto &it : master) {
-      temp.push_back(it);
-    }
-
-    if (!temp.empty())
-      return true;
-    else
-      return false;
-  }
-
-  return false;
 }
 
 // returns renderList
-std::vector<Object> World::GetRenderList() { return temp; }
+std::vector<Object> &World::GetObjectList() { return objects; }
 
 ///////////////////////////////////////////////////////
 ///////////////// Custom Worlds///////////////////////
 //////////////////////////////////////////////////////
 
-// Pre-condition: master list is already cleared
+// Pre-condition: objects list is already cleared
 // basic world
 void World::basicWorld() {
-  Poly testpoly =
-      Poly(Vertex(-6.666, 6.666, 0, 1, 0, 0), Vertex(13.333, 6.666, 0, 1, 1, 0),
-           Vertex(-6.666, -13.333, 0, 1, 0, 1), Vertex(), 3, Vector3D(0, 0, -1), TEXTURED);
-
   Object testobj = Object(box_tex, box_tex_width, box_tex_height, Vector3D(), Point3D(-10, -5, 15));
   Object testobj2 = Object(box_tex, box_tex_width, box_tex_height, Vector3D(), Point3D(10, -5, 15));
   Object testobj3 = Object(stone_tex, stone_tex_width, stone_tex_height);
-  Object testobj4 =
-      Object(testpoly, box_tex, box_tex_width, box_tex_height, Vector3D(), Point3D(0, 0, 15));
 
   testobj.GenerateCube();
-
   testobj2.GenerateCube();
   testobj2.SetRenderType(COLORED);
-
   testobj3.GenerateFloor(75, -10);
 
-  master.push_back(testobj);
-  master.push_back(testobj2);
-  master.push_back(testobj3);
-  master.push_back(testobj4);
+  objects.push_back(testobj);
+  objects.push_back(testobj2);
+  objects.push_back(testobj3);
 }
 
 void World::boxedIn() {
@@ -124,12 +65,12 @@ void World::boxedIn() {
   floor.GenerateFloor(length, depth);
   ceiling.GenerateCeiling(length, (length * 2) + depth);
 
-  master.push_back(wall1);
-  master.push_back(wall2);
-  master.push_back(wall3);
-  master.push_back(wall4);
-  master.push_back(floor);
-  master.push_back(ceiling);
-  master.push_back(testobj);
-  master.push_back(testobj2);
+  objects.push_back(wall1);
+  objects.push_back(wall2);
+  objects.push_back(wall3);
+  objects.push_back(wall4);
+  objects.push_back(floor);
+  objects.push_back(ceiling);
+  objects.push_back(testobj);
+  objects.push_back(testobj2);
 }

@@ -20,6 +20,8 @@ using hal = espp::EspBox;
 #include "png.hpp"
 #include <filesystem>
 
+#include "player.hpp"
+
 static constexpr size_t MAX_NAME_LEN = 32;
 
 using namespace std::chrono_literals;
@@ -33,6 +35,10 @@ static uint8_t *fb1 = nullptr;
 // DRAM for actual vram (used by SPI to send to LCD)
 static uint8_t *vram0 = nullptr;
 static uint8_t *vram1 = nullptr;
+
+static int frame_count = 0;
+static float FPS = 0;
+static auto start = esp_timer_get_time();
 
 // object index
 static int object_index = 0;
@@ -59,10 +65,7 @@ static constexpr size_t fb_size = hal::lcd_width() * hal::lcd_height() * sizeof(
 static Matrix worldToCamera = Matrix();
 static Matrix perspectiveProjection = Matrix();
 static Matrix projectionToPixel = Matrix();
-static std::vector<Object> objectlist;  // used for the static world objects
-static std::vector<Object> dynamiclist; // used for dynamic objects received from server
-static std::vector<Poly> renderlist;    // aggregate polygon list to be rendered
-static std::vector<Poly *> renderptrs;  // pointer list for zero-copy render
+static std::vector<Object> objectlist; // used for the static world objects
 
 uint16_t *defaulttexture = nullptr;
 size_t defaulttexture_width = 0;
@@ -103,217 +106,27 @@ struct Bounds {
 };
 
 Bounds get_bounds() {
-  Bounds bounds;
+  Bounds b;
   for (auto &obj : objectlist) {
     Point3D mn, mx;
     if (obj.GetWorldBounds(mn, mx)) {
-      bounds.minx = std::min(bounds.minx, mn.x);
-      bounds.miny = std::min(bounds.miny, mn.y);
-      bounds.minz = std::min(bounds.minz, mn.z);
-      bounds.maxx = std::max(bounds.maxx, mx.x);
-      bounds.maxy = std::max(bounds.maxy, mx.y);
-      bounds.maxz = std::max(bounds.maxz, mx.z);
+      b.minx = std::min(b.minx, mn.x);
+      b.miny = std::min(b.miny, mn.y);
+      b.minz = std::min(b.minz, mn.z);
+      b.maxx = std::max(b.maxx, mx.x);
+      b.maxy = std::max(b.maxy, mx.y);
+      b.maxz = std::max(b.maxz, mx.z);
     }
     // Only care about the first object, not the axes
     break;
   }
-  fmt::print("World bounds: min({:.2f}, {:.2f}, {:.2f}), max({:.2f}, {:.2f}, {:.2f})\n",
-             bounds.minx, bounds.miny, bounds.minz, bounds.maxx, bounds.maxy, bounds.maxz);
-  return bounds;
+  fmt::print("World bounds: min({:.2f}, {:.2f}, {:.2f}), max({:.2f}, {:.2f}, {:.2f})\n", b.minx,
+             b.miny, b.minz, b.maxx, b.maxy, b.maxz);
+  return b;
 };
 static Bounds bounds;
 
-enum ObjectType { // These are the types of dynamic objects which need to be tracked by the server
-  PLAYER,
-  SHOT
-};
-
-struct Object_s {
-  ObjectType type{SHOT};
-  size_t id{0};
-  double x, y, z, // position vector
-      theta, phi, // heading vector
-      life,       // time to live
-      vx, vy, vz; // velocity vector
-  std::string content_;
-  std::string killedby_;
-
-  Object_s() {}
-  Object_s(ObjectType t, size_t i, std::string_view c)
-      : type(t)
-      , id(i)
-      , content_(c) {}
-
-  Object_s(const Object_s &a) = default;
-  Object_s &operator=(const Object_s &a) = default;
-
-  void SetID(size_t i) { id = i; }
-  void SetType(ObjectType t) { type = t; }
-  void SetContent(std::string_view n) { content_ = n; }
-  void SetKilledby(std::string_view k) { killedby_ = k; }
-  void SetPos(const double _x, const double _y, const double _z) {
-    x = _x;
-    y = _y;
-    z = _z;
-  }
-  void SetHeading(const double _t, const double _p) {
-    theta = _t;
-    phi = _p;
-  }
-  void SetLife(const double _l) { life = _l; }
-  void SetVelocity(const double _x, const double _y, const double _z) {
-    vx = _x;
-    vy = _y;
-    vz = _z;
-  }
-
-  bool Update(const double time) {
-    double tr = cos(phi);
-    double tx = tr * sin(theta), ty = sin(phi), tz = tr * cos(theta);
-    double mag = sqrt(tx * tx + ty * ty + tz * tz);
-    tx = tx / mag;
-    ty = ty / mag;
-    tz = tz / mag;
-    x += tx * vz * time;
-    y += ty * vz * time;
-    z += tz * vz * time;
-    life = life - time;
-    return (life > 0);
-  }
-
-  bool operator==(const Object_s &b) {
-    if (id == b.id && type == b.type) {
-      return true;
-    } else {
-      return false;
-    }
-  }
-};
-
-struct Player_s {
-  std::string name;
-  size_t id{0};
-  double x, y, z, // position vector
-      theta, phi, // heading vector
-      life,       // time to live
-      vx, vy, vz; // velocity vector
-
-  Player_s() {}
-  Player_s(const Player_s &s) = default;
-  Player_s(std::string_view n, size_t i)
-      : name(n)
-      , id(i) {}
-
-  Player_s &operator=(const Player_s &s) = default;
-
-  void SetName(std::string_view n) { name = n; }
-  void SetID(size_t i) { id = i; }
-  void SetPos(const double _x, const double _y, const double _z) {
-    x = _x;
-    y = _y;
-    z = _z;
-  }
-  void SetHeading(const double _t, const double _p) {
-    theta = _t;
-    phi = _p;
-  }
-  void SetLife(const double _l) { life = _l; }
-  void SetVelocity(const double _x, const double _y, const double _z) {
-    vx = _x;
-    vy = _y;
-    vz = _z;
-  }
-
-  bool operator==(const Player_s &b) {
-    if (id == b.id && name == b.name) {
-      return true;
-    } else {
-      return false;
-    }
-  }
-};
-
-class Player_c {
-private:
-  bool registered{false};
-  Player_s info;
-  std::vector<Object_s> objects;
-  Camera eye;
-  World level;
-
-public:
-  Player_c()
-      : info()
-      , eye() {}
-  Player_c(const Player_s &s)
-      : info(s)
-      , eye() {}
-  Player_c(Player_c &s) { *this = s; }
-  ~Player_c() {}
-
-  Player_c &operator=(Player_c &s) = default;
-
-  Player_s Info() const { return info; }
-  void Info(const Player_s &s) { info = s; }
-
-  std::vector<Object_s> Objects() { return objects; }
-
-  Camera &Eye() { return eye; }
-  void Eye(const Camera &e) { eye = e; }
-
-  World &Level() { return level; }
-  void Level(const World &l) {
-    level = l;
-    objectlist = level.GetRenderList();
-  }
-  void Level(const long id) {
-    level = World(id);
-    objectlist = level.GetRenderList();
-  }
-
-  void Register() { registered = true; }
-  void Leave() { registered = false; }
-  bool Registered() { return registered; }
-
-  void Create(Object_s &a) { objects.push_back(a); }
-
-  void Move(Object_s &a) {
-
-    if (a.id == info.id && a.type == PLAYER) {
-      info.life = a.life;
-    } else {
-      for (auto &obj : objects) {
-        if (obj.id == a.id && obj.type == a.type) {
-          obj.SetPos(a.x, a.y, a.z);
-          obj.SetHeading(a.theta, a.phi);
-          obj.SetLife(a.life);
-          obj.SetVelocity(a.vx, a.vy, a.vz);
-          return;
-        }
-      }
-    }
-  }
-
-  void Update(const double time) {
-    for (auto &object : objects) {
-      if (object.type != PLAYER) {
-        object.Update(time);
-      }
-    }
-  }
-
-  void Remove(const ObjectType t, const size_t _id) {
-    for (auto it = objects.begin(); it != objects.end();) {
-      if (it->type == t && it->id == _id) {
-        it = objects.erase(it);
-      } else {
-        ++it;
-      }
-    }
-  }
-};
-
-static std::unique_ptr<Player_c> player;
+static std::unique_ptr<Player> player;
 
 extern "C" void app_main(void) {
   logger.info("Bootup");
@@ -453,6 +266,11 @@ extern "C" void app_main(void) {
 
   auto button_callback = [&](const auto &event) {
     if (event.active) {
+      logger.info("FPS = {:0.02f}", FPS);
+      // reset the FPS counter
+      frame_count = 0;
+      start = esp_timer_get_time();
+
       // increment the object index and update the render list
       std::lock_guard<std::mutex> lock(object_mutex);
       object_index++;
@@ -485,6 +303,7 @@ extern "C" void app_main(void) {
       } else {
         logger.warn("No object selected, using default world");
         player->Level(1); // load default level if no model found
+        objectlist = player->Level().GetObjectList();
       }
     }
   };
@@ -500,7 +319,7 @@ extern "C" void app_main(void) {
   clear_screen();
 
   // make the player
-  player = std::make_unique<Player_c>(Player_s("Player1", 1));
+  player = std::make_unique<Player>(PlayerInfo("Player1", 1));
   // Try to load a model from /models. If present, replace world with that object.
   {
     asset::TextureDecodeFn fileDecoder = [&](const std::string &path, uint16_t *&outPtr, int &w,
@@ -519,20 +338,18 @@ extern "C" void app_main(void) {
         return false;
       }
       // Try PNG first, then JPEG
-      bool ok = false;
       if (ext == ".png") {
-        ok = png_decoder.decode(path.c_str());
-        if (ok) {
-          w = png_decoder.get_width();
-          h = png_decoder.get_height();
-          logger.info("Decoded PNG texture {}x{}", w, h);
-          outPtr = (uint16_t *)heap_caps_malloc(w * h * sizeof(uint16_t),
-                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-          if (!outPtr)
-            return false;
-          std::memcpy(outPtr, png_decoder.get_decoded_data(), w * h * sizeof(uint16_t));
-          return true;
-        }
+        if (!png_decoder.decode(path.c_str()))
+          return false;
+        w = png_decoder.get_width();
+        h = png_decoder.get_height();
+        logger.info("Decoded PNG texture {}x{}", w, h);
+        outPtr = (uint16_t *)heap_caps_malloc(w * h * sizeof(uint16_t),
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!outPtr)
+          return false;
+        std::memcpy(outPtr, png_decoder.get_decoded_data(), w * h * sizeof(uint16_t));
+        return true;
       }
       if (ext == ".jpg" || ext == ".jpeg") {
         if (!decoder.decode(path.c_str()))
@@ -632,6 +449,10 @@ extern "C" void app_main(void) {
       objectlist.clear();
       objectlist.emplace_back(modelObjs[object_index]);
 
+      // reset the FPS counter
+      frame_count = 0;
+      start = esp_timer_get_time();
+
       bounds = get_bounds();
       // set the size of the axes to be slightly larger than the bounds of the object
       float axis_size = 0.0f;
@@ -651,6 +472,7 @@ extern "C" void app_main(void) {
 
     } else {
       player->Level(1); // load default level if no model found
+      objectlist = player->Level().GetObjectList();
     }
   }
 
@@ -704,6 +526,7 @@ extern "C" void app_main(void) {
   // make a simple task that prints "Hello World!" every second
   espp::Task task(
       {.callback = [&](auto &m, auto &cv) -> bool {
+         uint64_t now = esp_timer_get_time();
          std::lock_guard<std::mutex> lock(object_mutex);
          static int fb_index = 0; // frame buffer index, used to swap between fb0 and fb1
          // select the frame buffer
@@ -712,10 +535,6 @@ extern "C" void app_main(void) {
          // swap the frame buffer index
          fb_index = fb_index ^ 0x01;
          // Move camera to orbit around the loaded object and look at it
-         static auto start = esp_timer_get_time();
-         uint64_t now = esp_timer_get_time();
-         float t = (now - start) / 1'000'000.0f;
-         // Cylindrical orbit: compute planar extents (XZ) and center
          Point3D target(0, 0, 0);
          float extentX = 0.0f, extentY = 0.0f, extentZ = 0.0f;
          if (bounds.is_set()) {
@@ -733,26 +552,34 @@ extern "C" void app_main(void) {
            logger.warn(
                "Could not determine world bounds for object, using default camera position");
          }
+
+         // rotate the camera around the target in the XZ plane
+         static auto rotation_start = now;
+         float t = (now - rotation_start) / 1'000'000.0f;
+         float ang = t * 0.5f;
          float radius = std::max(extentX, extentZ);
          float orbitRadius = radius * 1.5f; // Not too close, or it will be slower
-         float ang = t * 0.5f;
          float camX = target.x + std::cos(ang) * orbitRadius;
          float camZ = target.z + std::sin(ang) * orbitRadius;
          float camY = target.y + std::max(extentY * 0.8f, 1.0f);
          Camera &eye = player->Eye();
          auto eyePos = Point3D(camX, camY, camZ);
-
          // Look from orbit position to the target center using explicit LookAt
          eye.LookAt(eyePos, target, Vector3D(0, 1, 0));
 
-         static int frame_count = 0;
-         frame_count++;
+         // we want to have the first object in the world move back and forth
+         // along the world x-axis, so apply the transform
+         auto new_pos =
+             Point3D(std::sin(t * 0.5f) * std::max(bounds.maxx, std::abs(bounds.minx)), 0.0f, 0.0f);
+         objectlist[0].SetPosition(new_pos);
 
          // render the scene
          updatePixels(fb_ptr);
          // push the frame to the video task
          push_frame(fb_ptr);
-         float FPS = frame_count / t;
+         frame_count++;
+         float frame_time = (now - start) / 1'000'000.0f;
+         FPS = frame_count / frame_time;
          logger.debug("FPS = {:0.02f}", FPS);
          // we don't want to stop the task, so return false
          return false;
@@ -788,74 +615,33 @@ void updatePixels(uint16_t *dst) {
 
   worldToCamera = player->Eye().GetWorldToCamera();
 
-  renderlist.clear();
-  renderptrs.clear();
-
-  dynamiclist.clear();
-  std::vector<Object_s> dynamic = player->Objects();
-  Object tempobj;
-  for (const auto &it : dynamic) {
-    switch (it.type) {
-    case PLAYER:
-      tempobj.GeneratePlayer(Point3D(it.x, it.y, it.z), it.theta, it.phi);
-      break;
-    case SHOT:
-      tempobj.GenerateShot(Point3D(it.x, it.y, it.z), it.theta, it.phi);
-      break;
-    default:
-      break;
-    }
-    tempobj.SetVelocity(Vector3D(it.vx, it.vy, it.vz));
-    dynamiclist.push_back(tempobj);
-  }
-
-  for (auto &it : dynamiclist) {
-    it.updateList();
-    it.TransformToCamera(worldToCamera);
-    it.TransformToPerspective(perspectiveProjection);
-    // zero-copy append
-    it.AppendRenderPointers(renderptrs);
-  }
+  std::vector<Vertex> frameVertices;
+  std::vector<uint32_t> frameIndices;
+  std::vector<Object::DrawView> drawList;
 
   for (auto &it : objectlist) {
-    it.updateList();
-    it.TransformToCamera(worldToCamera);
-    it.TransformToPerspective(perspectiveProjection);
-    // zero-copy append
-    it.AppendRenderPointers(renderptrs);
+    // indexed pipeline append
+    it.AppendDrawItems(worldToCamera, perspectiveProjection, projectionToPixel, frameVertices,
+                       frameIndices, drawList);
   }
 
-  logger.debug("Rendering {} primitives", renderptrs.size());
+  logger.debug("Rendering {} indexed draws ({} tris)", drawList.size(), frameIndices.size() / 3);
 
-#define ENABLE_FAST_RASTERIZATION 0
-
-  // Prepare and rasterize using pointers to avoid copies
-  for (auto *it : renderptrs) {
-    // Early clip reject (simple screen-space bounds after homogeneous divide)
-    it->Clip();
-    it->HomogeneousDivide();
-    // Quick bounds test in NDC
-    float minx = it->MinX();
-    float maxx = it->MaxX();
-    float miny = it->MinY();
-    float maxy = it->MaxY();
-    if (maxx < -1.0f || minx > 1.0f || maxy < -1.0f || miny > 1.0f) {
-      continue; // fully outside viewport
-    }
-    it->TransformToPixel(projectionToPixel);
-    it->SetupRasterization();
-#if !ENABLE_FAST_RASTERIZATION
-    it->RasterizeFull();
-#endif
-  }
-
-#if ENABLE_FAST_RASTERIZATION
-  for (int y = 0; y < SIZE_Y; y++) {
-    for (auto *it : renderptrs) {
-      it->RasterizeFast(y);
+  // Indexed pipeline rasterization
+  if (!drawList.empty()) {
+    for (const auto &d : drawList) {
+      const size_t end = d.baseIndex + d.indexCount;
+      for (size_t i = d.baseIndex; i + 2 < end; i += 3) {
+        const uint32_t i0 = d.baseVertex + frameIndices[i + 0];
+        const uint32_t i1 = d.baseVertex + frameIndices[i + 1];
+        const uint32_t i2 = d.baseVertex + frameIndices[i + 2];
+        const Vertex &a = frameVertices[i0];
+        const Vertex &b = frameVertices[i1];
+        const Vertex &c = frameVertices[i2];
+        RasterizeTriangle(a, b, c, d.rType, d.texture, d.texwidth, d.texheight, d.r, d.g, d.b);
+      }
     }
   }
-#endif
 }
 
 /////////////////////////////
@@ -864,7 +650,7 @@ void updatePixels(uint16_t *dst) {
 
 bool initialize_video() {
   if (video_queue_ || video_task_) {
-    return true;
+    return false;
   }
 
   video_queue_ = xQueueCreate(1, sizeof(uint16_t *));
@@ -927,7 +713,7 @@ bool video_task_callback(std::mutex &m, std::condition_variable &cv, bool &task_
     for (int i = 0; i < num_lines; i++) {
       // write two pixels (32 bits) at a time because it's faster
       for (int j = 0; j < lcd_width; j += 2) {
-        uint32_t *src = (uint32_t *)&_frame[(y + i) * lcd_width + j];
+        const uint32_t *src = (const uint32_t *)&_frame[(y + i) * lcd_width + j];
         uint32_t *dst = (uint32_t *)&_buf[i * lcd_width + j];
         dst[0] = src[0]; // copy two pixels (32 bits) at a time
       }

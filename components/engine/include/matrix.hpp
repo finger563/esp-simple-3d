@@ -9,16 +9,16 @@ public:
   float data[4][4];
   Matrix() { SetIdentity(); }
   Matrix(const Matrix &m);
-  ~Matrix() {}
 
-  void Print(int x, int y);
-
-  void SetIdentity();
-  void SetRotation(float x, float y, float z);      // Euler angle rotation
-  void SetRotation(float theta, const Vector3D &u); // Rotate by theta about vector u
   static Matrix RotationAxisAngle(float theta, const Vector3D &u) {
     Matrix m;
     m.SetRotation(theta, u);
+    return m;
+  }
+
+  static Matrix Identity() {
+    Matrix m;
+    m.SetIdentity();
     return m;
   }
 
@@ -34,21 +34,27 @@ public:
     m[3][2] = tz;
     return m;
   }
+
   void Clear();
+  void SetIdentity();
+  void SetRotation(float x, float y, float z);      // Euler angle rotation
+  void SetRotation(float theta, const Vector3D &u); // Rotate by theta about vector u
+
   Matrix Transpose(void) const;
-
   float Determinant(void) const;
-
   float Cofactor(int row, int col) const;
   Matrix Inverse(void) const;
 
-  Matrix operator-() const;
   Matrix &operator=(const Matrix &rhs);
+  bool operator!=(const Matrix &rhs) const;
+
+  Matrix operator-() const;
   Matrix operator*(const float rhs) const;
   Matrix operator/(const float rhs) const;
   Matrix operator*(const Matrix &rhs) const;
   Matrix operator+(const Matrix &rhs) const;
   Matrix operator-(const Matrix &rhs) const;
+  Vector3D operator*(const Vector3D &rhs) const;
 
   // Allow access to array data as Matrix[row] by returning a pointer to the row array
   const float (&operator[](int row) const)[4] { return data[row]; }
@@ -61,9 +67,6 @@ public:
   // Allow access to array data as Matrix[row, col] by returning a reference to
   // the element at that position
   float &operator[](int row, int col) { return data[row][col]; }
-
-  Vector3D operator*(const Vector3D &rhs) const;
-  bool operator!=(const Matrix &rhs) const;
 };
 
 [[maybe_unused]] static Matrix operator*(const float lhs, const Matrix &rhs) { return rhs * lhs; }
