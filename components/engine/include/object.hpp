@@ -113,7 +113,7 @@ public:
 
   void projectileInit(const Vector3D &head, const Vector3D &pos = Vector3D(0, 0, 0));
 
-  bool CollidesWith(const Object &b);
+  bool CollidesWith(const Object &b) const;
 
 private:
   struct Mesh {
@@ -126,7 +126,7 @@ private:
     float r{1.0f}, g{1.0f}, b{1.0f}; // for COLORED
   };
 
-  std::vector<Mesh> meshes; // indexed meshes (preferred)
+  std::vector<Mesh> meshes; // indexed meshes
   Matrix meshTransform;     // local transform (rotation/scale) applied to meshes
   Point3D position;
   Vector3D heading, velocity;
@@ -135,6 +135,4 @@ private:
   const unsigned short *tex;
   int texWidth;
   int texHeight;
-  size_t counter;
-  bool kill;
 };

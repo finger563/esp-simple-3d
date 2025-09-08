@@ -182,6 +182,11 @@ void Object::GenerateAxes(float length, float thickness) {
                            Matrix::Translation(Point3D(0, -length / 2, 0)), Vector3D(0, 0.35, 0));
   GenerateRectangularPrism(Vector3D(thickness, thickness, length / 2),
                            Matrix::Translation(Point3D(0, 0, -length / 2)), Vector3D(0, 0, 0.35));
+
+  // for all the meshes, set the render type to wireframe
+  for (auto &m : meshes) {
+    m.rType = WIREFRAME;
+  }
 }
 
 void Object::GenerateRectangularPrism(const Vector3D &halfSize, const Matrix &transform,
@@ -372,11 +377,39 @@ bool Object::GetLocalBounds(Point3D &outMin, Point3D &outMax) const {
 }
 
 bool Object::GetWorldBounds(Point3D &outMin, Point3D &outMax) const {
+  bool initialized = false;
   Point3D mn, mx;
-  if (!GetLocalBounds(mn, mx))
+
+  // Indexed meshes: transform by meshTransform then add translation
+  for (const auto &mesh : meshes) {
+    for (const auto &vin : mesh.vertices) {
+      Vertex v = vin;
+      v.Transform(meshTransform);
+      Point3D wp(v.x + position.x, v.y + position.y, v.z + position.z);
+      if (!initialized) {
+        mn = mx = wp;
+        initialized = true;
+      } else {
+        if (wp.x < mn.x)
+          mn.x = wp.x;
+        if (wp.y < mn.y)
+          mn.y = wp.y;
+        if (wp.z < mn.z)
+          mn.z = wp.z;
+        if (wp.x > mx.x)
+          mx.x = wp.x;
+        if (wp.y > mx.y)
+          mx.y = wp.y;
+        if (wp.z > mx.z)
+          mx.z = wp.z;
+      }
+    }
+  }
+
+  if (!initialized)
     return false;
-  outMin = mn + position;
-  outMax = mx + position;
+  outMin = mn;
+  outMax = mx;
   return true;
 }
 
@@ -404,7 +437,16 @@ void Object::projectileInit(const Vector3D &head, const Vector3D &pos) {
   GenerateCube(1);
 }
 
-bool Object::CollidesWith(const Object &b) {
-  // TODO: flesh out using new mesh format
+bool Object::CollidesWith(const Object &b) const {
+  // Broad-phase: AABB overlap in world space
+  Point3D aMin, aMax, bMin, bMax;
+  if (!GetWorldBounds(aMin, aMax) || !b.GetWorldBounds(bMin, bMax))
+    return false;
+  bool overlap = !(aMax.x < bMin.x || aMin.x > bMax.x || aMax.y < bMin.y || aMin.y > bMax.y ||
+                   aMax.z < bMin.z || aMin.z > bMax.z);
+  if (!overlap)
+    return false;
+
+  // TODO: narrow phase collision between the actual meshes?
   return false;
 }

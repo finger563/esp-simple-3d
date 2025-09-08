@@ -22,6 +22,58 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
   if (std::fabs(v2.y - v0.y) < 1e-6f)
     return;
 
+  // Dedicated wireframe path using Bresenham's algorithm for edges only
+  if (rt == WIREFRAME) {
+    auto draw_edge = [&](const Vertex &p0, const Vertex &p1) {
+      int x0 = (int)std::lround(p0.x);
+      int y0 = (int)std::lround(p0.y);
+      int x1 = (int)std::lround(p1.x);
+      int y1 = (int)std::lround(p1.y);
+      int dx = std::abs(x1 - x0);
+      int dy = std::abs(y1 - y0);
+      int sx = (x0 < x1) ? 1 : -1;
+      int sy = (y0 < y1) ? 1 : -1;
+      int err = dx - dy;
+      int steps = std::max(dx, dy);
+      if (steps <= 0)
+        steps = 1;
+      float dez = (p1.ez - p0.ez) / (float)steps;
+      float dhw = (p1.hw - p0.hw) / (float)steps;
+      float ez = p0.ez;
+      float hw = p0.hw;
+      uint16_t color =
+          RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
+      for (int i = 0;; ++i) {
+        if ((unsigned)y0 < (unsigned)SIZE_Y && (unsigned)x0 < (unsigned)SIZE_X) {
+          float zval = ez / hw;
+          float *zrow = z_buffer + y0 * SIZE_X;
+          uint16_t *drow = display_buffer + y0 * SIZE_X;
+          if (zval < zrow[x0]) {
+            zrow[x0] = zval;
+            drow[x0] = color;
+          }
+        }
+        if (x0 == x1 && y0 == y1)
+          break;
+        int e2 = 2 * err;
+        if (e2 > -dy) {
+          err -= dy;
+          x0 += sx;
+          ez += dez;
+          hw += dhw;
+        }
+        if (e2 < dx) {
+          err += dx;
+          y0 += sy;
+        }
+      }
+    };
+    draw_edge(v0, v1);
+    draw_edge(v1, v2);
+    draw_edge(v2, v0);
+    return;
+  }
+
   auto lerp_vertex = [](const Vertex &a, const Vertex &b, float t) {
     Vertex r;
     r.x = a.x + (b.x - a.x) * t;
@@ -78,7 +130,34 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
       float *zrow = z_buffer + y * SIZE_X;
       uint16_t *drow = display_buffer + y * SIZE_X;
 
-      if (rt == TEXTURED && texture) {
+      if (rt == WIREFRAME) {
+        // Draw only edges: we emit pixels at boundaries
+        // Left and right endpoints
+        int lx = xStart;
+        int rx = xEnd;
+        if (lx >= 0 && lx < SIZE_X) {
+          float zval = ez / hw;
+          if (zval < zrow[lx]) {
+            zrow[lx] = zval;
+            drow[lx] =
+                RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
+          }
+        }
+        // advance to the end sample
+        float stepCount = (float)(rx - xStart);
+        ez += dez * stepCount;
+        hw += dhw * stepCount;
+        u += du * stepCount;
+        v += dv * stepCount;
+        if (rx >= 0 && rx < SIZE_X) {
+          float zval = ez / hw;
+          if (zval < zrow[rx]) {
+            zrow[rx] = zval;
+            drow[rx] =
+                RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
+          }
+        }
+      } else if (rt == TEXTURED && texture) {
         const float uScale = (float)(texwidth - 1) * 65536.0f;
         const float vScale = (float)(texheight - 1) * 65536.0f;
         for (int x = xStart; x <= xEnd; ++x) {
