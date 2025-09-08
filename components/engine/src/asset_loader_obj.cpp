@@ -33,15 +33,16 @@ struct FaceIdx {
 static bool parseFaceTriplet(const string &tok, FaceIdx &out) {
   // formats: v, v/vt, v//vn, v/vt/vn (1-based indices)
   int v = 0, vt = 0, vn = 0;
-  char c1 = '\0', c2 = '\0';
   std::stringstream ss(tok);
   ss >> v;
   if (ss.peek() == '/') {
+    char c1 = '\0';
     ss.get(c1);
     if (ss.peek() != '/')
       ss >> vt;
   }
   if (ss.peek() == '/') {
+    char c2 = '\0';
     ss.get(c2);
     ss >> vn;
   }

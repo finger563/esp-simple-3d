@@ -12,8 +12,8 @@ struct PlayerInfo {
   float life{100.0f};
 
   PlayerInfo() {}
-  PlayerInfo(const PlayerInfo &s) = default;
-  PlayerInfo(std::string_view n, size_t i)
+  explicit PlayerInfo(const PlayerInfo &s) = default;
+  explicit PlayerInfo(std::string_view n, size_t i)
       : name(n)
       , id(i) {}
 
@@ -23,14 +23,14 @@ struct PlayerInfo {
   void SetID(size_t i) { id = i; }
   void SetLife(float l) { life = l; }
 
-  bool operator==(const PlayerInfo &b) {
+  bool operator==(const PlayerInfo &b) const {
     if (id == b.id) {
       return true;
     } else {
       return false;
     }
   }
-  bool operator!=(const PlayerInfo &b) { return !(*this == b); }
+  bool operator!=(const PlayerInfo &b) const { return !(*this == b); }
 };
 
 class Player {
@@ -41,18 +41,14 @@ private:
   World level{};
 
 public:
-  Player()
-      : info()
-      , eye() {}
-  Player(const PlayerInfo &s)
-      : info(s)
-      , eye() {}
-  Player(Player &s) { *this = s; }
-  ~Player() {}
+  Player() {}
+  explicit Player(const PlayerInfo &s)
+      : info(s) {}
+  explicit Player(const Player &s) = default;
 
-  Player &operator=(Player &s) = default;
+  Player &operator=(const Player &s) = default;
 
-  PlayerInfo Info() const { return info; }
+  const PlayerInfo &Info() const { return info; }
   void Info(const PlayerInfo &s) { info = s; }
 
   Camera &Eye() { return eye; }
@@ -64,5 +60,5 @@ public:
 
   void Register() { registered = true; }
   void Leave() { registered = false; }
-  bool Registered() { return registered; }
+  bool Registered() const { return registered; }
 };

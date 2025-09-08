@@ -49,8 +49,8 @@ public:
   void LookAt(const Point3D &eye, const Point3D &target,
               const Vector3D &worldUp = Vector3D(0, 1, 0));
 
-  bool operator==(const Camera &c) {
+  bool operator==(const Camera &c) const {
     return phi == c.phi && theta == c.theta && position == c.position;
   }
-  bool operator!=(const Camera &c) { return !(*this == c); }
+  bool operator!=(const Camera &c) const { return !(*this == c); }
 };

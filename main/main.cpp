@@ -106,23 +106,23 @@ struct Bounds {
 };
 
 Bounds get_bounds() {
-  Bounds bounds;
+  Bounds b;
   for (auto &obj : objectlist) {
     Point3D mn, mx;
     if (obj.GetWorldBounds(mn, mx)) {
-      bounds.minx = std::min(bounds.minx, mn.x);
-      bounds.miny = std::min(bounds.miny, mn.y);
-      bounds.minz = std::min(bounds.minz, mn.z);
-      bounds.maxx = std::max(bounds.maxx, mx.x);
-      bounds.maxy = std::max(bounds.maxy, mx.y);
-      bounds.maxz = std::max(bounds.maxz, mx.z);
+      b.minx = std::min(b.minx, mn.x);
+      b.miny = std::min(b.miny, mn.y);
+      b.minz = std::min(b.minz, mn.z);
+      b.maxx = std::max(b.maxx, mx.x);
+      b.maxy = std::max(b.maxy, mx.y);
+      b.maxz = std::max(b.maxz, mx.z);
     }
     // Only care about the first object, not the axes
     break;
   }
-  fmt::print("World bounds: min({:.2f}, {:.2f}, {:.2f}), max({:.2f}, {:.2f}, {:.2f})\n",
-             bounds.minx, bounds.miny, bounds.minz, bounds.maxx, bounds.maxy, bounds.maxz);
-  return bounds;
+  fmt::print("World bounds: min({:.2f}, {:.2f}, {:.2f}), max({:.2f}, {:.2f}, {:.2f})\n", b.minx,
+             b.miny, b.minz, b.maxx, b.maxy, b.maxz);
+  return b;
 };
 static Bounds bounds;
 
@@ -338,20 +338,18 @@ extern "C" void app_main(void) {
         return false;
       }
       // Try PNG first, then JPEG
-      bool ok = false;
       if (ext == ".png") {
-        ok = png_decoder.decode(path.c_str());
-        if (ok) {
-          w = png_decoder.get_width();
-          h = png_decoder.get_height();
-          logger.info("Decoded PNG texture {}x{}", w, h);
-          outPtr = (uint16_t *)heap_caps_malloc(w * h * sizeof(uint16_t),
-                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-          if (!outPtr)
-            return false;
-          std::memcpy(outPtr, png_decoder.get_decoded_data(), w * h * sizeof(uint16_t));
-          return true;
-        }
+        if (!png_decoder.decode(path.c_str()))
+          return false;
+        w = png_decoder.get_width();
+        h = png_decoder.get_height();
+        logger.info("Decoded PNG texture {}x{}", w, h);
+        outPtr = (uint16_t *)heap_caps_malloc(w * h * sizeof(uint16_t),
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!outPtr)
+          return false;
+        std::memcpy(outPtr, png_decoder.get_decoded_data(), w * h * sizeof(uint16_t));
+        return true;
       }
       if (ext == ".jpg" || ext == ".jpeg") {
         if (!decoder.decode(path.c_str()))
@@ -652,7 +650,7 @@ void updatePixels(uint16_t *dst) {
 
 bool initialize_video() {
   if (video_queue_ || video_task_) {
-    return true;
+    return false;
   }
 
   video_queue_ = xQueueCreate(1, sizeof(uint16_t *));
@@ -715,7 +713,7 @@ bool video_task_callback(std::mutex &m, std::condition_variable &cv, bool &task_
     for (int i = 0; i < num_lines; i++) {
       // write two pixels (32 bits) at a time because it's faster
       for (int j = 0; j < lcd_width; j += 2) {
-        uint32_t *src = (uint32_t *)&_frame[(y + i) * lcd_width + j];
+        const uint32_t *src = (const uint32_t *)&_frame[(y + i) * lcd_width + j];
         uint32_t *dst = (uint32_t *)&_buf[i * lcd_width + j];
         dst[0] = src[0]; // copy two pixels (32 bits) at a time
       }

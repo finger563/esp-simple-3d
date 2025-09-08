@@ -9,19 +9,23 @@ using namespace std;
 class World {
 
 private:
-  std::vector<Object> master;
-  std::vector<Object> temp;
-  long id;
+  std::vector<Object> master{};
+  std::vector<Object> temp{};
+  long id{0};
 
 public:
   // constructor
-  World();
+  World() {}
 
   // alternate constructor
-  World(long worldID);
+  World(long worldID)
+      : id(worldID) {
+    library(id);
+  }
 
-  // destructor
-  ~World();
+  World(const World &other) = default;
+
+  World &operator=(const World &other) = default;
 
   // allows world change
   void changeWorld(long worldID);

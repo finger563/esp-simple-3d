@@ -1,20 +1,4 @@
 #include "world.hpp"
-#include "camera.hpp"
-
-// constructor
-World::World()
-    : id(0) {
-  library(id);
-}
-
-// alternate constructor
-World::World(long worldID)
-    : id(worldID) {
-  library(id);
-}
-
-// destructor
-World::~World() {}
 
 // allows world change
 void World::changeWorld(long worldID) {
