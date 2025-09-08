@@ -65,8 +65,6 @@ static Matrix perspectiveProjection = Matrix();
 static Matrix projectionToPixel = Matrix();
 static std::vector<Object> objectlist;  // used for the static world objects
 static std::vector<Object> dynamiclist; // used for dynamic objects received from server
-static std::vector<Poly> renderlist;    // aggregate polygon list to be rendered
-static std::vector<Poly *> renderptrs;  // pointer list for zero-copy render
 
 uint16_t *defaulttexture = nullptr;
 size_t defaulttexture_width = 0;
@@ -717,6 +715,7 @@ extern "C" void app_main(void) {
   // make a simple task that prints "Hello World!" every second
   espp::Task task(
       {.callback = [&](auto &m, auto &cv) -> bool {
+         uint64_t now = esp_timer_get_time();
          std::lock_guard<std::mutex> lock(object_mutex);
          static int fb_index = 0; // frame buffer index, used to swap between fb0 and fb1
          // select the frame buffer
@@ -725,9 +724,6 @@ extern "C" void app_main(void) {
          // swap the frame buffer index
          fb_index = fb_index ^ 0x01;
          // Move camera to orbit around the loaded object and look at it
-         uint64_t now = esp_timer_get_time();
-         float t = (now - start) / 1'000'000.0f;
-         // Cylindrical orbit: compute planar extents (XZ) and center
          Point3D target(0, 0, 0);
          float extentX = 0.0f, extentY = 0.0f, extentZ = 0.0f;
          if (bounds.is_set()) {
@@ -745,9 +741,13 @@ extern "C" void app_main(void) {
            logger.warn(
                "Could not determine world bounds for object, using default camera position");
          }
+
+         // rotate the camera around the target in the XZ plane
+         static auto rotation_start = now;
+         float t = (now - rotation_start) / 1'000'000.0f;
+         float ang = t * 0.5f;
          float radius = std::max(extentX, extentZ);
          float orbitRadius = radius * 1.5f; // Not too close, or it will be slower
-         float ang = t * 0.5f;
          float camX = target.x + std::cos(ang) * orbitRadius;
          float camZ = target.z + std::sin(ang) * orbitRadius;
          float camY = target.y + std::max(extentY * 0.8f, 1.0f);
@@ -770,7 +770,8 @@ extern "C" void app_main(void) {
          // push the frame to the video task
          push_frame(fb_ptr);
          frame_count++;
-         FPS = frame_count / t;
+         float frame_time = (now - start) / 1'000'000.0f;
+         FPS = frame_count / frame_time;
          logger.debug("FPS = {:0.02f}", FPS);
          // we don't want to stop the task, so return false
          return false;
@@ -806,8 +807,6 @@ void updatePixels(uint16_t *dst) {
 
   worldToCamera = player->Eye().GetWorldToCamera();
 
-  renderlist.clear();
-  renderptrs.clear();
   std::vector<Vertex> frameVertices;
   std::vector<uint32_t> frameIndices;
   std::vector<Object::DrawView> drawList;
@@ -831,25 +830,18 @@ void updatePixels(uint16_t *dst) {
   }
 
   for (auto &it : dynamiclist) {
-    it.updateList();
-    it.TransformToCamera(worldToCamera);
-    it.TransformToPerspective(perspectiveProjection);
     // indexed pipeline append (if any meshes present)
     it.AppendDrawItems(worldToCamera, perspectiveProjection, projectionToPixel, frameVertices,
                        frameIndices, drawList);
   }
 
   for (auto &it : objectlist) {
-    it.updateList();
-    it.TransformToCamera(worldToCamera);
-    it.TransformToPerspective(perspectiveProjection);
     // indexed pipeline append
     it.AppendDrawItems(worldToCamera, perspectiveProjection, projectionToPixel, frameVertices,
                        frameIndices, drawList);
   }
 
-  logger.debug("Rendering {} polys (legacy) and {} indexed draws ({} tris)", renderptrs.size(),
-               drawList.size(), frameIndices.size() / 3);
+  logger.debug("Rendering {} indexed draws ({} tris)", drawList.size(), frameIndices.size() / 3);
 
   // Indexed pipeline rasterization
   if (!drawList.empty()) {

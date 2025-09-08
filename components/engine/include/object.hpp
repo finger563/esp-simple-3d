@@ -27,22 +27,11 @@ public:
          const Vector3D &vel = Vector3D(0, 0, 0), Point3D pos = Point3D(0, 0, 0), float _rx = 0,
          float _ry = 0, float _rz = 0);
 
-  // Alternate Constructor
-  Object(Poly &poly, const unsigned short *texture, const int texWid, const int texHgt,
-         const Vector3D &vel = Vector3D(0, 0, 0), Point3D pos = Point3D(0, 0, 0), float _rx = 0,
-         float _ry = 0, float _rz = 0);
-
   // Destructor
   ~Object() {}
 
   // Updates Temp last with any changes to the master list
   bool updateList();
-
-  // Updates Temp list to whatever list is passed (i.e. Render list)
-  bool updateList(const std::vector<Poly> &poly);
-
-  // add polygon to lists
-  void add(const Poly &poly);
 
   // Generates cube with with sidelength = size*2
   void GenerateCube(float size = 5);
@@ -101,22 +90,10 @@ public:
   void Transform(Matrix &m);
   void Translate(Vector3D &v);
 
-  // Temp list operations
-  void clearTemp();
-  void TransformTemp(const Matrix &m);
-  void TranslateTemp(const Vector3D &v);
-  void RotateTempToHeading();
-
   // Pipeline functions
   void TransformToCamera(Matrix &m);
   void TransformToPerspective(Matrix &m);
   void TransformToPixel(Matrix &m);
-  std::vector<Poly> GetRenderList() const;
-  std::vector<Poly> GetTemp() const;
-  // Append pointers to renderable polys in temp to avoid copies
-  void AppendRenderPointers(std::vector<Poly *> &out);
-  // Expose temp size for pre-reserving render pointer capacity
-  size_t TempSize() const { return temp.size(); }
 
   // Build per-frame transformed vertices/indices and draw views for indexed meshes
   void AppendDrawItems(const Matrix &view, const Matrix &proj, const Matrix &viewport,
@@ -149,8 +126,6 @@ private:
     float r{1.0f}, g{1.0f}, b{1.0f}; // for COLORED
   };
 
-  std::vector<Poly> master;
-  std::vector<Poly> temp;
   std::vector<Mesh> meshes; // indexed meshes (preferred)
   Matrix meshTransform;     // local transform (rotation/scale) applied to meshes
   Point3D position;

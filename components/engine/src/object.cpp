@@ -4,8 +4,6 @@
 Object::Object() {
   velocity = Vector3D(0, 0, 0);
   position = Point3D(0, 0, 0);
-  kill = false;
-  counter = 0;
   rx = 0;
   ry = 0;
   rz = 0;
@@ -25,54 +23,12 @@ Object::Object(const unsigned short *texture, const int texWid, const int texHgt
   rz = _rz;
 }
 
-// Alternate Constructor
-Object::Object(Poly &poly, const unsigned short *texture, const int texWid, const int texHgt,
-               const Vector3D &vel, Point3D pos, float _rx, float _ry, float _rz) {
-  velocity = vel;
-  position = pos;
-  tex = texture;
-  texWidth = texWid;
-  texHeight = texHgt;
-
-  // use Set Texture command instead...
-  poly.SetTexture(texture, texWidth, texHeight);
-  tex = texture;
-  master.push_back(poly);
-  temp.push_back(poly);
-  rx = _rx;
-  ry = _ry;
-  rz = _rz;
-}
-
-// generate() method switch statements??
-
-// Updates Temp list with any changes to the master list
-bool Object::updateList() {
-  temp.clear();
-  std::copy(master.begin(), master.end(), std::back_inserter(temp));
-  TranslateTemp(position);
-  return true;
-}
-
-bool Object::updateList(const std::vector<Poly> &poly) {
-  clearTemp();
-  std::copy(poly.begin(), poly.end(), std::back_inserter(temp));
-  TranslateTemp(position);
-  return true;
-}
-
 void Object::Transform(Matrix &m) {
-  for (auto &poly : master) {
-    poly.Transform(m);
-  }
   // Accumulate local mesh transform (rotation/scale)
   meshTransform = meshTransform * m;
 }
 
 void Object::Translate(Vector3D &v) {
-  for (auto &poly : master) {
-    poly.Translate(v.x, v.y, v.z);
-  }
   // For meshes, keep translation in position to be applied at draw time
   position = position + v;
 }
@@ -117,100 +73,10 @@ void Object::RotateToHeading(const Vector3D &changeUp) {
   Transform(m);
 }
 
-void Object::clearTemp() {
-  // empties temp list
-  temp.clear();
-}
-
-void Object::TransformTemp(const Matrix &m) {
-  for (auto &poly : temp) {
-    poly.Transform(m);
-  }
-}
-
-void Object::TranslateTemp(const Vector3D &v) {
-  for (auto &poly : temp) {
-    poly.Translate(v);
-  }
-}
-
-void Object::RotateTempToHeading() {
-  float r = cosf(phi);
-  float x = r * sinf(theta), y = sinf(phi), z = r * cosf(theta);
-  Vector3D forward = normalize(Vector3D(x, y, z));
-  Vector3D up = normalize(Vector3D(0, 1, 0));
-  Vector3D right = normalize(Cross(up, forward));
-  up = normalize(Cross(forward, right));
-  Matrix m = Matrix();
-  m[0][0] = right.x;
-  m[0][1] = right.y;
-  m[0][2] = right.z;
-  m[1][0] = up.x;
-  m[1][1] = up.y;
-  m[1][2] = up.z;
-  m[2][0] = forward.x;
-  m[2][1] = forward.y;
-  m[2][2] = forward.z;
-  TransformTemp(m);
-}
-
-void Object::add(const Poly &poly) {
-  master.push_back(poly);
-  updateList();
-}
-
 void Object::GenerateCube(float size) {
-  const float x0 = -size, x1 = size;
-  const float y0 = -size, y1 = size;
-  const float z0 = -size, z1 = size;
-
-  std::vector<Vertex> vertices;
-  vertices.reserve(24);
-  auto push_face = [&](float ax, float ay, float az, float bx, float by, float bz, float cx,
-                       float cy, float cz, float dx, float dy, float dz) {
-    Vertex v0(ax, ay, az, 1.0f, 0.0f, 1.0f);
-    Vertex v1(bx, by, bz, 1.0f, 0.0f, 0.0f);
-    Vertex v2(cx, cy, cz, 1.0f, 1.0f, 0.0f);
-    Vertex v3(dx, dy, dz, 1.0f, 1.0f, 1.0f);
-    vertices.push_back(v0);
-    vertices.push_back(v1);
-    vertices.push_back(v2);
-    vertices.push_back(v3);
-  };
-  // +Z face
-  push_face(x0, y0, z1, x0, y1, z1, x1, y1, z1, x1, y0, z1);
-  // -Z face
-  push_face(x1, y0, z0, x1, y1, z0, x0, y1, z0, x0, y0, z0);
-  // +X face
-  push_face(x1, y0, z1, x1, y1, z1, x1, y1, z0, x1, y0, z0);
-  // -X face
-  push_face(x0, y0, z0, x0, y1, z0, x0, y1, z1, x0, y0, z1);
-  // +Y face
-  push_face(x0, y1, z1, x0, y1, z0, x1, y1, z0, x1, y1, z1);
-  // -Y face
-  push_face(x0, y0, z0, x0, y0, z1, x1, y0, z1, x1, y0, z0);
-
-  std::vector<uint32_t> indices;
-  indices.reserve(36);
-  for (uint32_t f = 0; f < 6; ++f) {
-    uint32_t b = f * 4;
-    indices.push_back(b + 0);
-    indices.push_back(b + 1);
-    indices.push_back(b + 2);
-    indices.push_back(b + 0);
-    indices.push_back(b + 2);
-    indices.push_back(b + 3);
-  }
-
-  RenderType rt = (tex && texWidth > 0 && texHeight > 0) ? TEXTURED : COLORED;
-  float cr = 1.0f, cg = 1.0f, cb = 1.0f;
-  AddMesh(vertices, indices, rt, tex, texWidth, texHeight, cr, cg, cb);
-
-  rx = size;
-  ry = size;
-  rz = size;
-  theta = 3.141592f;
-  phi = 0.0f;
+  Matrix I;
+  I.SetIdentity();
+  GenerateRectangularPrism(Vector3D(size, size, size), I, Vector3D(1, 1, 1));
 }
 
 void Object::GenerateTetra(float size) {
@@ -316,7 +182,6 @@ void Object::GenerateAxes(float length, float thickness) {
                            Matrix::Translation(Point3D(0, -length / 2, 0)), Vector3D(0, 0.35, 0));
   GenerateRectangularPrism(Vector3D(thickness, thickness, length / 2),
                            Matrix::Translation(Point3D(0, 0, -length / 2)), Vector3D(0, 0, 0.35));
-  updateList();
 }
 
 void Object::GenerateRectangularPrism(const Vector3D &halfSize, const Matrix &transform,
@@ -347,61 +212,34 @@ void Object::GenerateRectangularPrism(const Vector3D &halfSize, const Matrix &tr
   vertices.emplace_back(make_v(x1, y1, z1)); // 7
 
   // 12 triangles (two per face), shared vertices
+
+  // clang-format off
   std::vector<uint32_t> indices = {
       // +X face (x = x1)
-      5,
-      7,
-      6,
-      5,
-      6,
-      4,
+      5, 7, 6, 5, 6, 4,
       // +Y face (y = y1)
-      3,
-      7,
-      6,
-      3,
-      6,
-      2,
+      3, 7, 6, 3, 6, 2,
       // +Z face (z = z1)
-      1,
-      3,
-      7,
-      1,
-      7,
-      5,
+      1, 3, 7, 1, 7, 5,
       // -X face (x = x0)
-      0,
-      2,
-      3,
-      0,
-      3,
-      1,
+      0, 2, 3, 0, 3, 1,
       // -Y face (y = y0)
-      0,
-      1,
-      5,
-      0,
-      5,
-      4,
+      0, 1, 5, 0, 5, 4,
       // -Z face (z = z0)
-      4,
-      6,
-      2,
-      4,
-      2,
-      0,
+      4, 6, 2, 4, 2, 0,
   };
+  // clang-format on
   AddMesh(vertices, indices, COLORED, nullptr, 0, 0, color.x, color.y, color.z);
 }
 
 void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
-  master.push_back(Poly(Vertex(0, 0, 4, 1), Vertex(0, 2, -2, 1), Vertex(0, -2, -2, 1), Vertex(), 3,
-                        Vector3D(1, 0, 0), COLORED));
-  master.begin()->SetDoubleSided(true);
-  master.begin()->SetVertexColors(
-      rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX,
-      rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX,
-      rand() / (float)RAND_MAX, rand() / (float)RAND_MAX, rand() / (float)RAND_MAX);
+  std::vector<Vertex> vertices;
+  vertices.reserve(3);
+  vertices.emplace_back(0, 0, 4.0f);
+  vertices.emplace_back(0, 2, -2.0f);
+  vertices.emplace_back(0, -2, -2);
+  std::vector<uint32_t> indices{0, 1, 2};
+  AddMesh(vertices, indices, COLORED, tex, texWidth, texHeight, 1.0f, 1.0f, 1.0f);
 
   rx = 0;
   ry = 0;
@@ -409,7 +247,6 @@ void Object::GenerateShot(const Vector3D &pos, float theta_, float phi_) {
   theta = 0;
   phi = 0;
 
-  updateList();
   theta = theta_;
   phi = phi_;
   position = pos;
@@ -428,7 +265,6 @@ void Object::GeneratePlayer(const Vector3D &pos, float theta_, float phi_,
   position = pos;
   SetRenderType(TEXTURED);
   RotateToHeading();
-  updateList();
 }
 
 bool Object::UpdateTime(int time) { return true; }
@@ -459,56 +295,10 @@ float Object::GetRadiusY(void) const { return ry; }
 float Object::GetRadiusZ(void) const { return rz; }
 
 bool Object::SetRenderType(RenderType rt) {
-  for (auto &poly : master) {
-    poly.SetRenderType(rt);
-  }
   for (auto &m : meshes) {
     m.rType = rt;
   }
   return true;
-}
-
-void Object::TransformToCamera(Matrix &m) {
-  for (auto &poly : temp) {
-    poly.TransformToCamera(m);
-  }
-}
-
-void Object::TransformToPerspective(Matrix &m) {
-  for (auto &poly : temp) {
-    poly.TransformToPerspective(m);
-  }
-}
-
-void Object::TransformToPixel(Matrix &m) {
-  for (auto &poly : temp) {
-    poly.TransformToPixel(m);
-  }
-}
-
-// returns final render list
-std::vector<Poly> Object::GetRenderList() const {
-  std::vector<Poly> get;
-  std::vector<Poly> local = temp;
-  for (auto &poly : local) {
-    if ((poly.visible || poly.doublesided) &&
-        (poly.v[0].z > 0 || poly.v[1].z > 0 || poly.v[2].z > 0 || poly.v[3].z > 0)) {
-      get.push_back(poly);
-    }
-  }
-
-  return get;
-}
-
-std::vector<Poly> Object::GetTemp() const { return temp; }
-
-void Object::AppendRenderPointers(std::vector<Poly *> &out) {
-  for (auto &poly : temp) {
-    if ((poly.visible || poly.doublesided) &&
-        (poly.v[0].z > 0 || poly.v[1].z > 0 || poly.v[2].z > 0 || poly.v[3].z > 0)) {
-      out.push_back(&poly);
-    }
-  }
 }
 
 void Object::AppendDrawItems(const Matrix &view, const Matrix &proj, const Matrix &viewport,
@@ -552,30 +342,6 @@ void Object::AppendDrawItems(const Matrix &view, const Matrix &proj, const Matri
 bool Object::GetLocalBounds(Point3D &outMin, Point3D &outMax) const {
   bool initialized = false;
   Point3D mn, mx;
-  // Consider legacy polys
-  for (const auto &poly : master) {
-    int n = poly.numVertices;
-    for (int i = 0; i < n; ++i) {
-      const Vertex &v = poly.v[i];
-      if (!initialized) {
-        mn = mx = Point3D(v.x, v.y, v.z);
-        initialized = true;
-      } else {
-        if (v.x < mn.x)
-          mn.x = v.x;
-        if (v.y < mn.y)
-          mn.y = v.y;
-        if (v.z < mn.z)
-          mn.z = v.z;
-        if (v.x > mx.x)
-          mx.x = v.x;
-        if (v.y > mx.y)
-          mx.y = v.y;
-        if (v.z > mx.z)
-          mx.z = v.z;
-      }
-    }
-  }
   // Consider indexed meshes
   for (const auto &m : meshes) {
     for (const auto &v : m.vertices) {
@@ -630,55 +396,15 @@ void Object::AddMesh(const std::vector<Vertex> &vertices, const std::vector<uint
   meshes.push_back(std::move(m));
 }
 
-////////////////////////////////////////
-/////////////////Projectile functons////
-///////////////////////////////////////
 void Object::projectileInit(const Vector3D &head, const Vector3D &pos) {
   // may have to create overload this to take a vector based
   // on where the mouse clicks
   heading = head;
   position = pos;
   GenerateCube(1);
-  counter = 1;
 }
 
 bool Object::CollidesWith(const Object &b) {
-  float distance = magnitude(b.GetPosition() - position);
-  // if ( distance >= (radius + b.getradius()) )
-  //	return false;
-  if (!updateList())
-    return false;
-  TranslateTemp(position);
-  std::vector<Poly> blist = b.GetTemp();
-  for (auto &bpoly : blist) {
-    Vector3D p0 = Vector3D(bpoly.v[0].x, bpoly.v[0].y, bpoly.v[0].z),
-             p1 = Vector3D(bpoly.v[1].x, bpoly.v[1].y, bpoly.v[1].z),
-             p2 = Vector3D(bpoly.v[2].x, bpoly.v[2].y, bpoly.v[2].z);
-    for (auto &it : temp) {
-      Vector3D A = Vector3D(it.v[0].x, it.v[0].y, it.v[0].z),
-               B = Vector3D(it.v[1].x, it.v[1].y, it.v[1].z),
-               C = Vector3D(it.v[2].x, it.v[2].y, it.v[2].z);
-      Vector3D p, n1, n2, n3;
-      float t = (-it.normal * (p0 - A)) / (it.normal * (p1 - p0));
-      if (t > 0 && t < 1) {
-        p = p0 + (p1 - p0) * t;
-        n1 = normalize(Cross(A - B, p - B));
-        n2 = normalize(Cross(B - C, p - C));
-        n3 = normalize(Cross(C - A, p - A));
-        if (n1 * n2 > 0 && n2 * n3 > 0)
-          return true;
-      } else {
-        t = (-it.normal * (p0 - A)) / (it.normal * (p2 - p0));
-        if (t > 0 && t < 1) {
-          p = p0 + (p2 - p0) * t;
-          n1 = normalize(Cross(A - B, p - B));
-          n2 = normalize(Cross(B - C, p - C));
-          n3 = normalize(Cross(C - A, p - A));
-          if (n1 * n2 > 0 && n2 * n3 > 0)
-            return true;
-        }
-      }
-    }
-  }
+  // TODO: flesh out using new mesh format
   return false;
 }
