@@ -199,7 +199,6 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
     }
   };
 
-  const float dy_long = (v2.y - v0.y);
   // Upper half v0->v1
   if (v1.y > v0.y) {
     span_and_fill((int)std::ceil(v0.y), (int)std::floor(v1.y), v0, v1, // short edge v0->v1

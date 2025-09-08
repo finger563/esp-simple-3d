@@ -27,12 +27,6 @@ public:
          const Vector3D &vel = Vector3D(0, 0, 0), Point3D pos = Point3D(0, 0, 0), float _rx = 0,
          float _ry = 0, float _rz = 0);
 
-  // Destructor
-  ~Object() {}
-
-  // Updates Temp last with any changes to the master list
-  bool updateList();
-
   // Generates cube with with sidelength = size*2
   void GenerateCube(float size = 5);
 
@@ -67,9 +61,7 @@ public:
                       const unsigned short *texture = nullptr, const int texWid = 0,
                       const int texHgt = 0);
 
-  // fileParser()<-- future function
-
-  bool UpdateTime(int time);
+  bool Update(int time);
 
   bool SetVelocity(const Vector3D &vector);
 

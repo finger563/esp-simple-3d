@@ -14,22 +14,19 @@ private:
   Vector3D position;
   Matrix viewMatrix; // cached world-to-camera transform
 
+  void ComputeAxes();
   void UpdateViewMatrix();
 
 public:
   Camera();
 
-  void ComputeAxes();
-
   void Translate(const Vector3D &v);
 
   void Rotate(const float _t, const float _p);
 
-  Matrix GetWorldToCamera();
+  const Matrix GetWorldToCamera() const { return viewMatrix.Inverse(); }
   const Matrix &GetViewMatrix() const { return viewMatrix; }
-  // Set camera transform directly (world-to-camera) and recompute basis/position
   void SetViewMatrix(const Matrix &m);
-  // Apply an arbitrary transform to the camera (in world space): newView = view * T
   void ApplyTransform(const Matrix &t);
 
   float GetPhi() const { return phi; }
@@ -53,21 +50,7 @@ public:
               const Vector3D &worldUp = Vector3D(0, 1, 0));
 
   bool operator==(const Camera &c) {
-    if (phi != c.GetPhi())
-      return false;
-    if (theta != c.GetTheta())
-      return false;
-    if (position != c.GetPosition())
-      return false;
-    return true;
+    return phi == c.phi && theta == c.theta && position == c.position;
   }
-  bool operator!=(const Camera &c) {
-    if (phi != c.GetPhi())
-      return true;
-    if (theta != c.GetTheta())
-      return true;
-    if (position != c.GetPosition())
-      return true;
-    return false;
-  }
+  bool operator!=(const Camera &c) { return !(*this == c); }
 };

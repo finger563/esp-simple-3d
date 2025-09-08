@@ -760,9 +760,6 @@ extern "C" void app_main(void) {
          // along the world x-axis, so apply the transform
          auto new_pos =
              Point3D(std::sin(t * 0.5f) * std::max(bounds.maxx, std::abs(bounds.minx)), 0.0f, 0.0f);
-         auto m_trans = Matrix::Translation(new_pos); // move back and forth along x-axis
-         // apply the translation to the first object in the world
-         // objectlist[0].Transform(m_trans);
          objectlist[0].SetPosition(new_pos);
 
          // render the scene

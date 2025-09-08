@@ -1,26 +1,11 @@
 #pragma once
 
-#include "constants.hpp"
 #include <cstdint>
-
 #include <limits>
 
-// #define DEBUG							// for console debugging
-// #define ON_SCREEN_DEBUG // for showing info on screen (pos,heading,RTT,update time)
-
-// for input handling
-const int INPUT_UPDATE_TIME = 20; // input updates in milliseconds
-
 // constants
-const int TEXT_WIDTH = 8;
-const int TEXT_HEIGHT = 13;
-const int IMAGE_WIDTH = 320;
-const int IMAGE_HEIGHT = 240;
-const int CHANNEL_COUNT = 3;
-const int DATA_SIZE = IMAGE_WIDTH * IMAGE_HEIGHT * CHANNEL_COUNT;
-
-const int SIZE_X = IMAGE_WIDTH;
-const int SIZE_Y = IMAGE_HEIGHT;
+const int SIZE_X = 320;
+const int SIZE_Y = 240;
 
 #define BACKGROUND_COLOR 0x0000
 #define DEFAULT_Z_BUFFER ((float)10000)

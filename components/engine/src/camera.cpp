@@ -76,8 +76,6 @@ void Camera::Rotate(const float _t, const float _p) {
   ComputeAxes();
 }
 
-Matrix Camera::GetWorldToCamera() { return viewMatrix.Inverse(); }
-
 Point3D Camera::GetPosition() const { return position; }
 
 void Camera::SetPosition(const float x, const float y, const float z) {

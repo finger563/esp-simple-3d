@@ -8,8 +8,6 @@ Matrix::Matrix(const Matrix &m) {
   }
 }
 
-void Matrix::Print(int x, int y) {}
-
 void Matrix::SetIdentity() {
   Clear();
   for (int row = 0; row < 4; row++) {

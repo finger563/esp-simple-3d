@@ -272,7 +272,7 @@ void Object::GeneratePlayer(const Vector3D &pos, float theta_, float phi_,
   RotateToHeading();
 }
 
-bool Object::UpdateTime(int time) { return true; }
+bool Object::Update(int time) { return true; }
 
 bool Object::SetVelocity(const Vector3D &vector) {
   velocity = vector;

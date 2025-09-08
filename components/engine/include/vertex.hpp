@@ -42,9 +42,6 @@ public:
     nx = ny = nz = 0;
     hw = _w;
   }
-  ~Vertex() {}
-
-  void Print() {}
 
   // Variable Setting Methods
   void SetColor(const float _r, const float _g, const float _b) {
@@ -87,7 +84,7 @@ public:
     }
     return true;
   }
-  bool operator!=(const Vertex &rhs) const = default;
+  bool operator!=(const Vertex &rhs) const { return !(*this == rhs); }
   float &operator[](const int i) { return data[i]; }
   float operator[](const int i) const { return data[i]; }
   Vertex operator-(const Vertex &rhs) const;
