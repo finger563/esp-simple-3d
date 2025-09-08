@@ -18,7 +18,7 @@ public:
   World() {}
 
   // alternate constructor
-  World(long worldID)
+  explicit World(long worldID)
       : id(worldID) {
     library(id);
   }

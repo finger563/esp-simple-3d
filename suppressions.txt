@@ -8,4 +8,4 @@ cstyleCast
 
 // Specific suppressions of the form:
 //   [error id]:[filename]:[line]
-*:components/espp/*
+*:components/engine/include/cgltf.h
