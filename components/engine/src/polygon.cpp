@@ -1,11 +1,38 @@
 #include "polygon.hpp"
 #include "render_layout.hpp"
+#include <algorithm>
 #include <cmath>
 
 // Helper to rasterize a single triangle (no Poly construction)
 void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, RenderType rt,
                        const unsigned short *texture, int texwidth, int texheight, float cr,
                        float cg, float cb) {
+  // Backface culling using camera-space positions reconstructed as (ex/ey/ez)/(hw)
+  if (rt != WIREFRAME) {
+    float ax = a.ex / std::max(a.hw, 1e-12f);
+    float ay = a.ey / std::max(a.hw, 1e-12f);
+    float az = a.ez / std::max(a.hw, 1e-12f);
+    float bx = b.ex / std::max(b.hw, 1e-12f);
+    float by = b.ey / std::max(b.hw, 1e-12f);
+    float bz = b.ez / std::max(b.hw, 1e-12f);
+    float cx = c.ex / std::max(c.hw, 1e-12f);
+    float cy = c.ey / std::max(c.hw, 1e-12f);
+    float cz = c.ez / std::max(c.hw, 1e-12f);
+    Vector3D p0(ax, ay, az), p1(bx, by, bz), p2(cx, cy, cz);
+    Vector3D e1 = p1 - p0;
+    Vector3D e2 = p2 - p0;
+    Vector3D n = Cross(e1, e2);
+    Vector3D eye(0, 0, -1);
+    Vector3D cull = eye - p0;
+    float test = cull * n;
+    // Use a tolerance scaled by depth to avoid popping due to precision
+    float depthScale = std::max({std::fabs(az), std::fabs(bz), std::fabs(cz), 1.0f});
+    float eps = 1e-3f * depthScale;
+    if (test < -eps) {
+      return; // confidently backfacing
+    }
+  }
+
   // Copy and y-sort vertices ascending (v0 at top, v2 at bottom)
   Vertex v0 = a, v1 = b, v2 = c;
   if (v1.y < v0.y)
