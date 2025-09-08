@@ -9,41 +9,22 @@ using namespace std;
 class World {
 
 private:
-  std::vector<Object> master{};
-  std::vector<Object> temp{};
+  std::vector<Object> objects{};
   long id{0};
 
 public:
-  // constructor
   World() {}
 
-  // alternate constructor
-  explicit World(long worldID)
-      : id(worldID) {
-    library(id);
-  }
+  explicit World(long worldID) { changeWorld(id); }
 
   World(const World &other) = default;
 
   World &operator=(const World &other) = default;
 
-  // allows world change
   void changeWorld(long worldID);
 
-  // clear Master
-  void masterClear();
-
-  // clear Temp
-  void tempClear();
-
-  // adds correct world to temp list
-  void library(long worldID);
-
-  // Updates Temp list with any changes to the master list
-  bool updateList();
-
   // returns renderList
-  std::vector<Object> GetObjectList();
+  std::vector<Object> &GetObjectList();
 
   ///////////////////////////////////////////////////////
   ///////////////// Custom Worlds///////////////////////
