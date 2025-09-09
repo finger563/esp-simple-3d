@@ -56,7 +56,7 @@ static void push_frame(const void *frame);
 // rendering
 float *z_buffer{nullptr};          // [SIZE_X * SIZE_Y];
 uint16_t *display_buffer{nullptr}; // [SIZE_X * SIZE_Y];
-static void updatePixels(uint16_t *dst);
+static void render();
 
 static constexpr int num_rows_in_vram = 50;
 static constexpr size_t vram_size = hal::lcd_width() * num_rows_in_vram * sizeof(hal::Pixel);
@@ -404,7 +404,6 @@ extern "C" void app_main(void) {
     };
     bool loaded = false;
 
-    // Prefer GLB
     for (auto &entry : std::filesystem::directory_iterator(models_dir, ec)) {
       auto path = entry.path();
       if (!entry.is_regular_file())
@@ -422,24 +421,15 @@ extern "C" void app_main(void) {
           logger.warn("Failed to load.");
         }
       }
-    }
-    // Fallback to OBJ
-    if (!loaded) {
-      for (auto &entry : std::filesystem::directory_iterator(models_dir, ec)) {
-        auto path = entry.path();
-        if (!entry.is_regular_file())
-          continue;
-        auto ext = path.extension().string();
-        if (ext == ".obj") {
-          logger.info("Trying to load OBJ file {}", path.string());
-          MaterialInfo mi;
-          modelObjs.push_back(Object());
-          loaded = asset::LoadOBJ(path.string(), modelObjs[modelObjs.size() - 1], &mi, fileDecoder);
-          if (loaded) {
-            logger.info("Successfully loaded OBJ model from {}", path.string());
-          } else {
-            logger.warn("Failed to load.");
-          }
+      if (ext == ".obj") {
+        logger.info("Trying to load OBJ file {}", path.string());
+        MaterialInfo mi;
+        modelObjs.push_back(Object());
+        loaded = asset::LoadOBJ(path.string(), modelObjs[modelObjs.size() - 1], &mi, fileDecoder);
+        if (loaded) {
+          logger.info("Successfully loaded OBJ model from {}", path.string());
+        } else {
+          logger.warn("Failed to load.");
         }
       }
     }
@@ -528,12 +518,6 @@ extern "C" void app_main(void) {
       {.callback = [&](auto &m, auto &cv) -> bool {
          uint64_t now = esp_timer_get_time();
          std::lock_guard<std::mutex> lock(object_mutex);
-         static int fb_index = 0; // frame buffer index, used to swap between fb0 and fb1
-         // select the frame buffer
-         uint16_t *fb_ptr =
-             (uint16_t *)((uint32_t)fb0 * (fb_index ^ 0x01) + (uint32_t)fb0 * fb_index);
-         // swap the frame buffer index
-         fb_index = fb_index ^ 0x01;
          // Move camera to orbit around the loaded object and look at it
          Point3D target(0, 0, 0);
          float extentX = 0.0f, extentY = 0.0f, extentZ = 0.0f;
@@ -573,10 +557,8 @@ extern "C" void app_main(void) {
              Point3D(std::sin(t * 0.5f) * std::max(bounds.maxx, std::abs(bounds.minx)), 0.0f, 0.0f);
          objectlist[0].SetPosition(new_pos);
 
-         // render the scene
-         updatePixels(fb_ptr);
-         // push the frame to the video task
-         push_frame(fb_ptr);
+         render();
+
          frame_count++;
          float frame_time = (now - start) / 1'000'000.0f;
          FPS = frame_count / frame_time;
@@ -599,18 +581,24 @@ extern "C" void app_main(void) {
 }
 
 // copy an image data to texture buffer, this updates what is rendered
-void updatePixels(uint16_t *dst) {
-  if (!dst)
-    return;
+void IRAM_ATTR render() {
+  static int fb_index = 0; // frame buffer index, used to swap between fb0 and fb1
+  // swap the frame buffer index
+  fb_index = !fb_index;
+  // select the frame buffer
+  uint16_t *fb_ptr = (fb_index == 0) ? (uint16_t *)fb0 : (uint16_t *)fb1;
+
+  // wait until the video queue is empty
+  while (uxQueueMessagesWaiting(video_queue_) > 0) {
+    std::this_thread::sleep_for(100us);
+  }
 
   // set the display_buffer to point to dst, so that the engine will use it.
-  display_buffer = dst;
+  display_buffer = fb_ptr;
 
-  for (int y = 0; y < SIZE_Y; y++) {
-    for (int x = 0; x < SIZE_X; x++) {
-      display_buffer[x + y * SIZE_X] = BACKGROUND_COLOR;
-      z_buffer[x + y * SIZE_X] = DEFAULT_Z_BUFFER;
-    }
+  for (int i = 0; i < SIZE_X * SIZE_Y; i++) {
+    display_buffer[i] = BACKGROUND_COLOR;
+    z_buffer[i] = DEFAULT_Z_BUFFER;
   }
 
   worldToCamera = player->Eye().GetWorldToCamera();
@@ -642,6 +630,9 @@ void updatePixels(uint16_t *dst) {
       }
     }
   }
+
+  // push the frame to the video task
+  push_frame(fb_ptr);
 }
 
 /////////////////////////////
@@ -671,7 +662,8 @@ void clear_screen() {
 
 void IRAM_ATTR push_frame(const void *frame) { xQueueSend(video_queue_, &frame, portMAX_DELAY); }
 
-bool video_task_callback(std::mutex &m, std::condition_variable &cv, bool &task_notified) {
+bool IRAM_ATTR video_task_callback(std::mutex &m, std::condition_variable &cv,
+                                   bool &task_notified) {
   const void *_frame_ptr;
   if (xQueueReceive(video_queue_, &_frame_ptr, portMAX_DELAY) != pdTRUE) {
     return false;
@@ -692,13 +684,13 @@ bool video_task_callback(std::mutex &m, std::condition_variable &cv, bool &task_
   // special case: if _frame_ptr is null, then we simply fill the screen with 0
   if (_frame_ptr == nullptr) {
     for (int y = 0; y < lcd_height; y += num_lines_to_write) {
-      Pixel *_buf = (Pixel *)((uint32_t)vram0 * (vram_index ^ 0x01) + (uint32_t)vram1 * vram_index);
+      vram_index = !vram_index;
+      Pixel *_buf = (vram_index == 0) ? (Pixel *)vram0 : (Pixel *)vram1;
       int num_lines = std::min<int>(num_lines_to_write, lcd_height - y);
       // memset the buffer to 0
       memset(_buf, 0, lcd_width * num_lines * sizeof(Pixel));
       hw.write_lcd_lines(x_offset, y + y_offset, x_offset + lcd_width - 1,
                          y + y_offset + num_lines - 1, (uint8_t *)&_buf[0], 0);
-      vram_index = vram_index ^ 0x01;
     }
 
     // now return
@@ -706,8 +698,8 @@ bool video_task_callback(std::mutex &m, std::condition_variable &cv, bool &task_
   }
 
   for (int y = 0; y < lcd_height; y += num_lines_to_write) {
-    uint16_t *_buf =
-        (uint16_t *)((uint32_t)vram0 * (vram_index ^ 0x01) + (uint32_t)vram1 * vram_index);
+    vram_index = !vram_index;
+    Pixel *_buf = (vram_index == 0) ? (Pixel *)vram0 : (Pixel *)vram1;
     int num_lines = std::min<int>(num_lines_to_write, lcd_height - y);
     const uint16_t *_frame = (const uint16_t *)_frame_ptr;
     for (int i = 0; i < num_lines; i++) {
@@ -720,7 +712,6 @@ bool video_task_callback(std::mutex &m, std::condition_variable &cv, bool &task_
     }
     hw.write_lcd_lines(x_offset, y + y_offset, x_offset + lcd_width - 1,
                        y + y_offset + num_lines - 1, (uint8_t *)&_buf[0], 0);
-    vram_index = vram_index ^ 0x01;
   }
 
   return false;

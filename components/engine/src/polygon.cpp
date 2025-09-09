@@ -159,34 +159,7 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
       float *zrow = z_buffer + y * SIZE_X;
       uint16_t *drow = display_buffer + y * SIZE_X;
 
-      if (rt == WIREFRAME) {
-        // Draw only edges: we emit pixels at boundaries
-        // Left and right endpoints
-        int lx = xStart;
-        int rx = xEnd;
-        if (lx >= 0 && lx < SIZE_X) {
-          float zval = ez / hw;
-          if (zval < zrow[lx]) {
-            zrow[lx] = zval;
-            drow[lx] =
-                RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
-          }
-        }
-        // advance to the end sample
-        float stepCount = (float)(rx - xStart);
-        ez += dez * stepCount;
-        hw += dhw * stepCount;
-        u += du * stepCount;
-        v += dv * stepCount;
-        if (rx >= 0 && rx < SIZE_X) {
-          float zval = ez / hw;
-          if (zval < zrow[rx]) {
-            zrow[rx] = zval;
-            drow[rx] =
-                RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
-          }
-        }
-      } else if (rt == TEXTURED && texture) {
+      if (rt == TEXTURED && texture) {
         const float uScale = (float)(texwidth - 1) * 65536.0f;
         const float vScale = (float)(texheight - 1) * 65536.0f;
         for (int x = xStart; x <= xEnd; ++x) {

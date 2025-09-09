@@ -102,24 +102,47 @@ bool LoadOBJ(const string &objPath, Object &outObject, MaterialInfo *outMat,
   string activeMtl;
 
   std::vector<Vec3> pos;
-  pos.reserve(1024);
+  pos.reserve(4096);
   std::vector<Vec3> nor;
-  nor.reserve(1024);
+  nor.reserve(4096);
   std::vector<Vec2> tex;
-  tex.reserve(1024);
+  tex.reserve(4096);
 
-  // We build polys per face; for quads/ngons we triangulate fan-wise
-  std::vector<FaceIdx> face;
-  face.reserve(8);
-
-  string line;
-  // Accumulate one mesh per material group for simplicity
+  // Accumulate one mesh per material group
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;
+  vertices.reserve(8192);
+  indices.reserve(16384);
+
+  // Vertex welding: (v, vt, vn) -> index
+  auto key_for = [](int v, int vt, int vn) -> uint64_t {
+    // Pack into 64 bits (21 bits each) with -1 mapped to 0, others plus 1
+    uint64_t kv = (uint64_t)(v + 1) & 0x1FFFFF;
+    uint64_t kt = (uint64_t)(vt + 1) & 0x1FFFFF;
+    uint64_t kn = (uint64_t)(vn + 1) & 0x1FFFFF;
+    return (kv << 42) | (kt << 21) | kn;
+  };
+  std::unordered_map<uint64_t, uint32_t> weld;
+  weld.reserve(8192);
+
   RenderType curRT = COLORED;
   const unsigned short *curTex = nullptr;
   int curTW = 0, curTH = 0;
   float curR = 1.0f, curG = 1.0f, curB = 1.0f;
+
+  auto flush_mesh = [&]() {
+    if (!vertices.empty() && !indices.empty()) {
+      outObject.AddMesh(vertices, indices, curRT, curTex, curTW, curTH, curR, curG, curB);
+      vertices.clear();
+      indices.clear();
+      weld.clear();
+    }
+  };
+
+  string line;
+  std::vector<FaceIdx> face;
+  face.reserve(16);
+
   while (std::getline(f, line)) {
     trim(line);
     if (line.empty() || line[0] == '#')
@@ -133,14 +156,9 @@ bool LoadOBJ(const string &objPath, Object &outObject, MaterialInfo *outMat,
       ss >> mtl;
       loadMTL(base / mtl, mtls);
     } else if (key == "usemtl") {
-      // Flush previous mesh if we were accumulating
-      if (!vertices.empty() && !indices.empty()) {
-        outObject.AddMesh(vertices, indices, curRT, curTex, curTW, curTH, curR, curG, curB);
-        vertices.clear();
-        indices.clear();
-      }
+      flush_mesh();
       ss >> activeMtl;
-      // Set material defaults for new group
+      // Reset material defaults
       curRT = COLORED;
       curTex = nullptr;
       curTW = curTH = 0;
@@ -200,37 +218,50 @@ bool LoadOBJ(const string &objPath, Object &outObject, MaterialInfo *outMat,
       }
       if (face.size() < 3)
         continue;
-      // Triangulate face[0], face[i-1], face[i], push vertices and indices
-      auto push_vertex = [&](const FaceIdx &idx) -> uint32_t {
-        Vertex v;
-        const Vec3 &p = pos[idx.v];
-        v = Vertex(p.x, p.y, p.z, 1.0f);
+
+      auto get_or_add = [&](const FaceIdx &idx) -> uint32_t {
+        uint64_t key = key_for(idx.v, idx.vt, idx.vn);
+        auto it = weld.find(key);
+        if (it != weld.end())
+          return it->second;
+
+        // Build vertex
+        Vertex vv;
+        // position
+        const Vec3 &p = pos[(size_t)idx.v];
+        vv = Vertex(p.x, p.y, p.z, 1.0f);
+        // uv (flip V: OBJ vt usually uses bottom-left origin; our textures are top-left)
         if (idx.vt >= 0 && (size_t)idx.vt < tex.size()) {
-          v.u = tex[idx.vt].u;
-          v.v = tex[idx.vt].v;
+          float u = tex[(size_t)idx.vt].u;
+          float v = tex[(size_t)idx.vt].v;
+          vv.u = u;
+          vv.v = 1.0f - v; // flip V
         }
+        // normal
         if (idx.vn >= 0 && (size_t)idx.vn < nor.size()) {
-          v.nx = nor[idx.vn].x;
-          v.ny = nor[idx.vn].y;
-          v.nz = nor[idx.vn].z;
+          vv.nx = nor[(size_t)idx.vn].x;
+          vv.ny = nor[(size_t)idx.vn].y;
+          vv.nz = nor[(size_t)idx.vn].z;
         }
-        vertices.push_back(v);
-        return static_cast<uint32_t>(vertices.size() - 1);
+        uint32_t newIndex = static_cast<uint32_t>(vertices.size());
+        vertices.push_back(vv);
+        weld.emplace(key, newIndex);
+        return newIndex;
       };
+
+      // Triangulate fan-wise: (0, i-1, i)
       for (size_t i = 2; i < face.size(); ++i) {
-        uint32_t i0 = push_vertex(face[0]);
-        uint32_t i1 = push_vertex(face[i - 1]);
-        uint32_t i2 = push_vertex(face[i]);
+        uint32_t i0 = get_or_add(face[0]);
+        uint32_t i1 = get_or_add(face[i - 1]);
+        uint32_t i2 = get_or_add(face[i]);
         indices.push_back(i0);
         indices.push_back(i1);
         indices.push_back(i2);
       }
     }
   }
-  // Flush final accumulated mesh
-  if (!vertices.empty() && !indices.empty()) {
-    outObject.AddMesh(vertices, indices, curRT, curTex, curTW, curTH, curR, curG, curB);
-  }
+
+  flush_mesh();
   return true;
 }
 
