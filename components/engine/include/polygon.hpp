@@ -2,11 +2,14 @@
 
 #include <cstdint>
 
+#include "depth_config.hpp"
 #include "textures.hpp"
 #include "vertex.hpp"
 
-extern float *z_buffer;
+extern depth_t *z_buffer;
 extern uint16_t *display_buffer;
+extern int render_target_y_offset;
+extern int render_target_height;
 
 // This tells the engine what type of rendering we want for this polygon
 enum RenderType {

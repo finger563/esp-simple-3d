@@ -12,7 +12,8 @@ private:
   Vector3D right;
 
   Vector3D position;
-  Matrix viewMatrix; // cached world-to-camera transform
+  Matrix viewMatrix;          // camera-to-world transform
+  Matrix worldToCameraMatrix; // cached world-to-camera transform
 
   void ComputeAxes();
   void UpdateViewMatrix();
@@ -24,7 +25,7 @@ public:
 
   void Rotate(const float _t, const float _p);
 
-  const Matrix GetWorldToCamera() const { return viewMatrix.Inverse(); }
+  const Matrix &GetWorldToCamera() const { return worldToCameraMatrix; }
   const Matrix &GetViewMatrix() const { return viewMatrix; }
   void SetViewMatrix(const Matrix &m);
   void ApplyTransform(const Matrix &t);
