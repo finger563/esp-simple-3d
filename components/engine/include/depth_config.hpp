@@ -3,14 +3,14 @@
 // Depth buffer configuration
 // Enable 16-bit UNORM depth storage for bandwidth savings
 #ifndef ENGINE_DEPTH_USE_UNORM16
-#define ENGINE_DEPTH_USE_UNORM16 0
+#define ENGINE_DEPTH_USE_UNORM16 1
 #endif
 
 // Depth semantics
 // When using float depth: smaller is nearer (z < zbuffer)
 // Optional: enable inverse-depth stepping to avoid per-pixel divide
 #ifndef ENGINE_DEPTH_USE_INVERSE
-#define ENGINE_DEPTH_USE_INVERSE 0
+#define ENGINE_DEPTH_USE_INVERSE 1
 #endif
 
 // Helper macros to map float depth z in [0, ZMAX] to UNORM16
@@ -35,7 +35,7 @@ static inline uint16_t depth_float_to_unorm16(float z) {
 
 // Inverse-depth normalization (zinv / ZINV_MAX)
 #ifndef ENGINE_DEPTH_ZINV_MAX
-#define ENGINE_DEPTH_ZINV_MAX 1.0f
+#define ENGINE_DEPTH_ZINV_MAX 100.0f
 #endif
 
 static inline uint16_t depth_inv_to_unorm16(float zinv) {

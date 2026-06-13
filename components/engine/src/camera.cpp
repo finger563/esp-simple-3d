@@ -10,14 +10,16 @@ Camera::Camera()
     , right(1, 0, 0)
     , position(0, 0, 0) {
   viewMatrix.SetIdentity();
+  worldToCameraMatrix.SetIdentity();
 }
 
 void Camera::Translate(const Vector3D &v) {
   position = right * (v.x) + up * (v.y) + forward * (v.z) + position;
+  UpdateViewMatrix();
 }
 
 void Camera::UpdateViewMatrix() {
-  // set the viewmatrix
+  // Camera-to-world transform
   viewMatrix.SetIdentity();
   viewMatrix[0][0] = right.x;
   viewMatrix[0][1] = right.y;
@@ -31,6 +33,22 @@ void Camera::UpdateViewMatrix() {
   viewMatrix[3][0] = position.x;
   viewMatrix[3][1] = position.y;
   viewMatrix[3][2] = position.z;
+
+  // Rigid-body inverse for world-to-camera:
+  // x_cam = dot(world - position, axis)
+  worldToCameraMatrix.SetIdentity();
+  worldToCameraMatrix[0][0] = right.x;
+  worldToCameraMatrix[1][0] = right.y;
+  worldToCameraMatrix[2][0] = right.z;
+  worldToCameraMatrix[0][1] = up.x;
+  worldToCameraMatrix[1][1] = up.y;
+  worldToCameraMatrix[2][1] = up.z;
+  worldToCameraMatrix[0][2] = forward.x;
+  worldToCameraMatrix[1][2] = forward.y;
+  worldToCameraMatrix[2][2] = forward.z;
+  worldToCameraMatrix[3][0] = -position.Dot(right);
+  worldToCameraMatrix[3][1] = -position.Dot(up);
+  worldToCameraMatrix[3][2] = -position.Dot(forward);
 }
 
 void Camera::ComputeAxes() {
@@ -82,6 +100,7 @@ void Camera::SetPosition(const float x, const float y, const float z) {
   position.x = x;
   position.y = y;
   position.z = z;
+  UpdateViewMatrix();
 }
 
 Point3D Camera::GetForward() const { return forward; }
@@ -90,6 +109,7 @@ void Camera::SetForward(const float x, const float y, const float z) {
   forward.x = x;
   forward.y = y;
   forward.z = z;
+  UpdateViewMatrix();
 }
 
 Point3D Camera::GetUp() const { return up; }
@@ -98,6 +118,7 @@ void Camera::SetUp(const float x, const float y, const float z) {
   up.x = x;
   up.y = y;
   up.z = z;
+  UpdateViewMatrix();
 }
 
 Point3D Camera::GetRight() const { return right; }
@@ -106,6 +127,7 @@ void Camera::SetRight(const float x, const float y, const float z) {
   right.x = x;
   right.y = y;
   right.z = z;
+  UpdateViewMatrix();
 }
 
 void Camera::LookAt(const Point3D &eyePos, const Point3D &target, const Vector3D &worldUp) {
@@ -133,6 +155,7 @@ void Camera::SetViewMatrix(const Matrix &m) {
   // Recover position from translation row under row-vectors convention
   float t0 = m[3][0], t1 = m[3][1], t2 = m[3][2];
   position = -(right * t0 + up * t1 + forward * t2);
+  UpdateViewMatrix();
 }
 
 void Camera::ApplyTransform(const Matrix &t) {

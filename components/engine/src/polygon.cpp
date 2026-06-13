@@ -3,34 +3,65 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+
+constexpr float kRasterEpsilon = 1e-6f;
+
+inline float compute_depth(float ez, float hw) {
+#if ENGINE_DEPTH_USE_INVERSE
+  (void)ez;
+  return hw;
+#else
+  return ez / hw;
+#endif
+}
+
+inline bool depth_test_and_store(depth_t &slot, float depth) {
+#if ENGINE_DEPTH_USE_UNORM16
+#if ENGINE_DEPTH_USE_INVERSE
+  const uint16_t encoded = depth_inv_to_unorm16(depth);
+  if (encoded > slot) {
+    slot = encoded;
+    return true;
+  }
+  return false;
+#else
+  const uint16_t encoded = depth_float_to_unorm16(depth);
+  if (encoded < slot) {
+    slot = encoded;
+    return true;
+  }
+  return false;
+#endif
+#else
+#if ENGINE_DEPTH_USE_INVERSE
+  if (depth > slot) {
+    slot = depth;
+    return true;
+  }
+  return false;
+#else
+  if (depth < slot) {
+    slot = depth;
+    return true;
+  }
+  return false;
+#endif
+#endif
+}
+
+} // namespace
+
 // Helper to rasterize a single triangle (no Poly construction)
 void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, RenderType rt,
                        const unsigned short *texture, int texwidth, int texheight, float cr,
                        float cg, float cb) {
-  // Backface culling using camera-space positions reconstructed as (ex/ey/ez)/(hw)
+  // With both projected axes inverted, front-facing triangles have negative signed screen area.
   if (rt != WIREFRAME) {
-    float ax = a.ex / std::max(a.hw, 1e-12f);
-    float ay = a.ey / std::max(a.hw, 1e-12f);
-    float az = a.ez / std::max(a.hw, 1e-12f);
-    float bx = b.ex / std::max(b.hw, 1e-12f);
-    float by = b.ey / std::max(b.hw, 1e-12f);
-    float bz = b.ez / std::max(b.hw, 1e-12f);
-    float cx = c.ex / std::max(c.hw, 1e-12f);
-    float cy = c.ey / std::max(c.hw, 1e-12f);
-    float cz = c.ez / std::max(c.hw, 1e-12f);
-    Vector3D p0(ax, ay, az), p1(bx, by, bz), p2(cx, cy, cz);
-    Vector3D e1 = p1 - p0;
-    Vector3D e2 = p2 - p0;
-    Vector3D n = Cross(e1, e2);
-    Vector3D eye(0, 0, -1);
-    Vector3D cull = eye - p0;
-    float test = cull * n;
-    // Use a tolerance scaled by depth to avoid popping due to precision
-    float depthScale = std::max({std::fabs(az), std::fabs(bz), std::fabs(cz), 1.0f});
-    float eps = 1e-3f * depthScale;
-    if (test < -eps) {
-      return; // confidently backfacing
-    }
+    const float signedArea =
+        (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    if (signedArea >= -kRasterEpsilon)
+      return;
   }
 
   // Copy and y-sort vertices ascending (v0 at top, v2 at bottom)
@@ -42,11 +73,18 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
   if (v1.y < v0.y)
     std::swap(v0, v1);
 
-  // Quick reject if triangle fully outside screen vertically
-  if (v2.y < 0 || v0.y >= SIZE_Y)
+  const int stripStart = render_target_y_offset;
+  const int stripEnd = stripStart + render_target_height;
+
+  // Quick reject if triangle fully outside the current strip or screen
+  if (v2.y < 0 || v0.y >= SIZE_Y || v2.y < stripStart || v0.y >= stripEnd)
+    return;
+  const float minX = std::min({v0.x, v1.x, v2.x});
+  const float maxX = std::max({v0.x, v1.x, v2.x});
+  if (maxX < 0.0f || minX >= SIZE_X)
     return;
   // Degenerate check
-  if (std::fabs(v2.y - v0.y) < 1e-6f)
+  if (std::fabs(v2.y - v0.y) < kRasterEpsilon)
     return;
 
   // Dedicated wireframe path using Bresenham's algorithm for edges only
@@ -69,12 +107,13 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
           RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
 
       for (int i = 0;; ++i) {
-        if ((unsigned)y0 < (unsigned)SIZE_Y && (unsigned)x0 < (unsigned)SIZE_X) {
-          float *zrow = z_buffer + y0 * SIZE_X;
-          uint16_t *drow = display_buffer + y0 * SIZE_X;
-          const float zval = ez / hw;
-          if (zval < zrow[x0]) {
-            zrow[x0] = zval;
+        if ((unsigned)y0 < (unsigned)SIZE_Y && (unsigned)x0 < (unsigned)SIZE_X && y0 >= stripStart &&
+            y0 < stripEnd) {
+          const int localY = y0 - stripStart;
+          depth_t *zrow = z_buffer + localY * SIZE_X;
+          uint16_t *drow = display_buffer + localY * SIZE_X;
+          const float depth = compute_depth(ez, hw);
+          if (depth_test_and_store(zrow[x0], depth)) {
             drow[x0] = color;
           }
         }
@@ -103,114 +142,153 @@ void RasterizeTriangle(const Vertex &a, const Vertex &b, const Vertex &c, Render
     return;
   }
 
-  auto lerp_vertex = [](const Vertex &a, const Vertex &b, float t) {
-    Vertex r;
-    r.x = a.x + (b.x - a.x) * t;
-    r.y = a.y + (b.y - a.y) * t;
-    r.ez = a.ez + (b.ez - a.ez) * t;
-    r.hw = a.hw + (b.hw - a.hw) * t;
-    r.u = a.u + (b.u - a.u) * t;
-    r.v = a.v + (b.v - a.v) * t;
-    return r;
+  struct EdgeState {
+    float x;
+    float ez;
+    float hw;
+    float u;
+    float v;
+    float xStep;
+    float ezStep;
+    float hwStep;
+    float uStep;
+    float vStep;
   };
 
-  auto span_and_fill = [&](int yStart, int yEnd, const Vertex &leftA, const Vertex &leftB,
-                           const Vertex &rightA, const Vertex &rightB) {
-    if (yEnd < 0 || yStart >= SIZE_Y)
+  auto setup_edge = [&](const Vertex &from, const Vertex &to, int startY, EdgeState &edge) {
+    const float dy = to.y - from.y;
+    if (std::fabs(dy) < kRasterEpsilon)
+      return false;
+    const float invDy = 1.0f / dy;
+    edge.xStep = (to.x - from.x) * invDy;
+    edge.ezStep = (to.ez - from.ez) * invDy;
+    edge.hwStep = (to.hw - from.hw) * invDy;
+    edge.uStep = (to.u - from.u) * invDy;
+    edge.vStep = (to.v - from.v) * invDy;
+    const float yOffset = static_cast<float>(startY) - from.y;
+    edge.x = from.x + edge.xStep * yOffset;
+    edge.ez = from.ez + edge.ezStep * yOffset;
+    edge.hw = from.hw + edge.hwStep * yOffset;
+    edge.u = from.u + edge.uStep * yOffset;
+    edge.v = from.v + edge.vStep * yOffset;
+    return true;
+  };
+
+  auto draw_span = [&](int y, EdgeState left, EdgeState right) {
+    if (left.x > right.x)
+      std::swap(left, right);
+
+    int xStart = (int)std::ceil(left.x);
+    int xEnd = (int)std::floor(right.x);
+    if (xEnd < 0 || xStart >= SIZE_X)
       return;
-    if (yStart < 0)
-      yStart = 0;
-    if (yEnd >= SIZE_Y)
-      yEnd = SIZE_Y - 1;
-    const float dyL = (leftB.y - leftA.y);
-    const float dyR = (rightB.y - rightA.y);
-    if (std::fabs(dyL) < 1e-6f || std::fabs(dyR) < 1e-6f)
-      return;
-    for (int y = yStart; y <= yEnd; ++y) {
-      float tL = ((float)y + 0.0f - leftA.y) / dyL;
-      float tR = ((float)y + 0.0f - rightA.y) / dyR;
-      Vertex L = lerp_vertex(leftA, leftB, tL);
-      Vertex R = lerp_vertex(rightA, rightB, tR);
-      if (L.x > R.x)
-        std::swap(L, R);
+    if (xStart < 0)
+      xStart = 0;
+    if (xEnd >= SIZE_X)
+      xEnd = SIZE_X - 1;
 
-      int xStart = (int)std::ceil(L.x);
-      int xEnd = (int)std::floor(R.x);
-      if (xEnd < 0 || xStart >= SIZE_X)
-        continue;
-      if (xStart < 0)
-        xStart = 0;
-      if (xEnd >= SIZE_X)
-        xEnd = SIZE_X - 1;
-      const float invDen = 1.0f / (R.x - L.x + 1e-12f);
+    const float spanDx = right.x - left.x;
+    float invSpan = 0.0f;
+    if (std::fabs(spanDx) >= kRasterEpsilon)
+      invSpan = 1.0f / spanDx;
 
-      float t0 = ((float)xStart - L.x) * invDen;
-      float ez = L.ez + (R.ez - L.ez) * t0;
-      float hw = L.hw + (R.hw - L.hw) * t0;
-      float u = L.u + (R.u - L.u) * t0;
-      float v = L.v + (R.v - L.v) * t0;
-      const float dez = (R.ez - L.ez) * invDen;
-      const float dhw = (R.hw - L.hw) * invDen;
-      const float du = (R.u - L.u) * invDen;
-      const float dv = (R.v - L.v) * invDen;
+    const float t0 = (std::fabs(spanDx) >= kRasterEpsilon) ? ((float)xStart - left.x) * invSpan : 0.0f;
+    float ez = left.ez + (right.ez - left.ez) * t0;
+    float hw = left.hw + (right.hw - left.hw) * t0;
+    float u = left.u + (right.u - left.u) * t0;
+    float v = left.v + (right.v - left.v) * t0;
+    const float dez = (right.ez - left.ez) * invSpan;
+    const float dhw = (right.hw - left.hw) * invSpan;
+    const float du = (right.u - left.u) * invSpan;
+    const float dv = (right.v - left.v) * invSpan;
 
-      uint16_t flatColor =
-          RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
-      float *zrow = z_buffer + y * SIZE_X;
-      uint16_t *drow = display_buffer + y * SIZE_X;
+    const uint16_t flatColor =
+        RGB_MAKE((uint8_t)(cr * 255.0f), (uint8_t)(cg * 255.0f), (uint8_t)(cb * 255.0f));
+    const int localY = y - stripStart;
+    depth_t *zrow = z_buffer + localY * SIZE_X;
+    uint16_t *drow = display_buffer + localY * SIZE_X;
 
-      if (rt == TEXTURED && texture) {
-        const float uScale = (float)(texwidth - 1) * 65536.0f;
-        const float vScale = (float)(texheight - 1) * 65536.0f;
-        for (int x = xStart; x <= xEnd; ++x) {
-          float zval = ez / hw;
-          if (zval < zrow[x]) {
-            zrow[x] = zval;
-            float pu = u / hw;
-            float pv = v / hw;
-            int u_lt0 = pu<0.0f, u_gt1 = pu> 1.0f;
-            int u_in = !(u_lt0 | u_gt1);
-            int v_lt0 = pv<0.0f, v_gt1 = pv> 1.0f;
-            int v_in = !(v_lt0 | v_gt1);
-            pu = u_in * pu + u_gt1 * 1.0f + u_lt0 * 0.0f;
-            pv = v_in * pv + v_gt1 * 1.0f + v_lt0 * 0.0f;
-            int32_t ufx = (int32_t)(pu * uScale);
-            int32_t vfx = (int32_t)(pv * vScale);
-            int tx = ufx >> 16;
-            int ty = vfx >> 16;
-            drow[x] = texture[tx + ty * texwidth];
-          }
-          ez += dez;
-          hw += dhw;
-          u += du;
-          v += dv;
+    if (rt == TEXTURED && texture) {
+      const float uScale = (float)(texwidth - 1) * 65536.0f;
+      const float vScale = (float)(texheight - 1) * 65536.0f;
+      for (int x = xStart; x <= xEnd; ++x) {
+        const float depth = compute_depth(ez, hw);
+        if (depth_test_and_store(zrow[x], depth)) {
+          const float recipHw = 1.0f / hw;
+          float pu = u * recipHw;
+          float pv = v * recipHw;
+          int u_lt0 = pu < 0.0f, u_gt1 = pu > 1.0f;
+          int u_in = !(u_lt0 | u_gt1);
+          int v_lt0 = pv < 0.0f, v_gt1 = pv > 1.0f;
+          int v_in = !(v_lt0 | v_gt1);
+          pu = u_in * pu + u_gt1 * 1.0f + u_lt0 * 0.0f;
+          pv = v_in * pv + v_gt1 * 1.0f + v_lt0 * 0.0f;
+          const int32_t ufx = (int32_t)(pu * uScale);
+          const int32_t vfx = (int32_t)(pv * vScale);
+          const int tx = ufx >> 16;
+          const int ty = vfx >> 16;
+          drow[x] = texture[tx + ty * texwidth];
         }
-      } else {
-        for (int x = xStart; x <= xEnd; ++x) {
-          float zval = ez / hw;
-          if (zval < zrow[x]) {
-            zrow[x] = zval;
-            drow[x] = flatColor;
-          }
-          ez += dez;
-          hw += dhw;
-          u += du;
-          v += dv;
+        ez += dez;
+        hw += dhw;
+        u += du;
+        v += dv;
+      }
+    } else {
+      for (int x = xStart; x <= xEnd; ++x) {
+        const float depth = compute_depth(ez, hw);
+        if (depth_test_and_store(zrow[x], depth)) {
+          drow[x] = flatColor;
         }
+        ez += dez;
+        hw += dhw;
+        u += du;
+        v += dv;
       }
     }
   };
 
-  // Upper half v0->v1
+  const float splitT = (v1.y - v0.y) / (v2.y - v0.y);
+  const float splitX = v0.x + (v2.x - v0.x) * splitT;
+  const bool midIsLeft = v1.x < splitX;
+
+  auto rasterize_half = [&](int yStart, int yEnd, const Vertex &shortA, const Vertex &shortB,
+                            const Vertex &longA, const Vertex &longB, bool shortIsLeft) {
+    if (yEnd < 0 || yStart >= SIZE_Y || yEnd < stripStart || yStart >= stripEnd)
+      return;
+    yStart = std::max(yStart, stripStart);
+    yEnd = std::min(yEnd, stripEnd - 1);
+    if (yStart > yEnd)
+      return;
+
+    EdgeState left{}, right{};
+    if (shortIsLeft) {
+      if (!setup_edge(shortA, shortB, yStart, left) || !setup_edge(longA, longB, yStart, right))
+        return;
+    } else {
+      if (!setup_edge(longA, longB, yStart, left) || !setup_edge(shortA, shortB, yStart, right))
+        return;
+    }
+
+    for (int y = yStart; y <= yEnd; ++y) {
+      draw_span(y, left, right);
+      left.x += left.xStep;
+      left.ez += left.ezStep;
+      left.hw += left.hwStep;
+      left.u += left.uStep;
+      left.v += left.vStep;
+      right.x += right.xStep;
+      right.ez += right.ezStep;
+      right.hw += right.hwStep;
+      right.u += right.uStep;
+      right.v += right.vStep;
+    }
+  };
+
   if (v1.y > v0.y) {
-    span_and_fill((int)std::ceil(v0.y), (int)std::floor(v1.y), v0, v1, // short edge v0->v1
-                  v0, v2                                               // long edge v0->v2
-    );
+    rasterize_half((int)std::ceil(v0.y), (int)std::floor(v1.y), v0, v1, v0, v2, midIsLeft);
   }
-  // Lower half v1->v2
   if (v2.y > v1.y) {
-    span_and_fill((int)std::ceil(v1.y), (int)std::floor(v2.y), v1, v2, // short edge v1->v2
-                  v0, v2                                               // long edge v0->v2
-    );
+    rasterize_half((int)std::ceil(v1.y), (int)std::floor(v2.y), v1, v2, v0, v2, midIsLeft);
   }
 }

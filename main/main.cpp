@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -30,9 +31,6 @@ using DisplayDriver = hal::DisplayDriver;
 static espp::Logger logger({.tag = "Simple3d", .level = espp::Logger::Verbosity::INFO});
 
 // frame buffers for decoding into
-static uint8_t *fb0 = nullptr;
-static uint8_t *fb1 = nullptr;
-// DRAM for actual vram (used by SPI to send to LCD)
 static uint8_t *vram0 = nullptr;
 static uint8_t *vram1 = nullptr;
 
@@ -46,26 +44,55 @@ static std::vector<Object> modelObjs;
 static std::mutex object_mutex;
 
 // video
-static std::unique_ptr<espp::Task> video_task_{nullptr};
-static QueueHandle_t video_queue_{nullptr};
-static bool initialize_video();
-static bool video_task_callback(std::mutex &m, std::condition_variable &cv, bool &task_notified);
 static void clear_screen();
-static void push_frame(const void *frame);
 
 // rendering
-float *z_buffer{nullptr};          // [SIZE_X * SIZE_Y];
-uint16_t *display_buffer{nullptr}; // [SIZE_X * SIZE_Y];
+depth_t *z_buffer{nullptr};
+uint16_t *display_buffer{nullptr};
+int render_target_y_offset{0};
+int render_target_height{0};
 static void render();
 
-static constexpr int num_rows_in_vram = 50;
+static constexpr int num_rows_in_vram = 32;
+static constexpr int num_render_strips = (SIZE_Y + num_rows_in_vram - 1) / num_rows_in_vram;
 static constexpr size_t vram_size = hal::lcd_width() * num_rows_in_vram * sizeof(hal::Pixel);
-static constexpr size_t fb_size = hal::lcd_width() * hal::lcd_height() * sizeof(hal::Pixel);
+static constexpr size_t z_buffer_size = SIZE_X * num_rows_in_vram * sizeof(depth_t);
+
+#if ENGINE_DEPTH_USE_UNORM16
+static constexpr depth_t kDepthClearValue = ENGINE_DEPTH_CLEAR_UNORM16;
+#else
+static constexpr depth_t kDepthClearValue = ENGINE_DEPTH_CLEAR_FLOAT;
+#endif
 
 static Matrix worldToCamera = Matrix();
 static Matrix perspectiveProjection = Matrix();
 static Matrix projectionToPixel = Matrix();
 static std::vector<Object> objectlist; // used for the static world objects
+
+namespace {
+struct TriangleWorkItem {
+  uint32_t i0{0};
+  uint32_t i1{0};
+  uint32_t i2{0};
+  uint32_t drawIndex{0};
+};
+
+static std::vector<Vertex> frameVertices;
+static std::vector<uint32_t> frameIndices;
+static std::vector<Object::DrawView> drawList;
+static std::array<std::vector<TriangleWorkItem>, num_render_strips> stripTriangles;
+
+void reserve_render_buffers() {
+  if (frameVertices.capacity() == 0) {
+    frameVertices.reserve(8192);
+    frameIndices.reserve(24576);
+    drawList.reserve(128);
+    for (auto &bucket : stripTriangles) {
+      bucket.reserve(1024);
+    }
+  }
+}
+} // namespace
 
 uint16_t *defaulttexture = nullptr;
 size_t defaulttexture_width = 0;
@@ -217,34 +244,18 @@ extern "C" void app_main(void) {
     return;
   }
 
-  // allocate some frame buffers for jpeg decoding, which should be screen-size
-  // and in PSRAM
-  fb0 = (uint8_t *)heap_caps_malloc(fb_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  fb1 = (uint8_t *)heap_caps_malloc(fb_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!fb0 || !fb1) {
-    logger.error("Could not allocate frame buffers for LCD");
-    if (fb0) {
-      heap_caps_free(fb0);
-    }
-    if (fb1) {
-      heap_caps_free(fb1);
-    }
-    return;
-  }
-
-  // allocate the required z-buffer for the engine
-  constexpr size_t z_buffer_size = SIZE_X * SIZE_Y * sizeof(float);
-  z_buffer = (float *)heap_caps_malloc(z_buffer_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  // Allocate the strip buffers in internal DRAM so rendering does not thrash PSRAM.
+  z_buffer = (depth_t *)heap_caps_malloc(z_buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!z_buffer) {
-    logger.error("Could not allocate z-buffer");
+    logger.error("Could not allocate strip z-buffer");
     return;
   }
 
-  // allocate some DMA-capable VRAM for jpeg decoding / display operations
+  // Allocate a DMA-capable color strip used both for rasterization output and LCD transfer.
   vram0 = (uint8_t *)heap_caps_malloc(vram_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
   vram1 = (uint8_t *)heap_caps_malloc(vram_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
   if (!vram0 || !vram1) {
-    logger.error("Could not allocate VRAM for LCD");
+    logger.error("Could not allocate strip VRAM for LCD");
     if (vram0) {
       heap_caps_free(vram0);
     }
@@ -255,14 +266,7 @@ extern "C" void app_main(void) {
   }
 
   logger.info("Allocated z-buffer: {} B", z_buffer_size);
-  logger.info("Allocated frame buffers: fb0 = {} B, fb1 = {} B", fb_size, fb_size);
-  logger.info("Allocated VRAM: vram0 = {} B, vram1 = {} B", vram_size, vram_size);
-
-  // initialize the video task
-  if (!initialize_video()) {
-    logger.error("Could not initialize video task");
-    return;
-  }
+  logger.info("Allocated strip VRAM: {} B", vram_size);
 
   auto button_callback = [&](const auto &event) {
     if (event.active) {
@@ -582,30 +586,15 @@ extern "C" void app_main(void) {
 
 // copy an image data to texture buffer, this updates what is rendered
 void IRAM_ATTR render() {
-  static int fb_index = 0; // frame buffer index, used to swap between fb0 and fb1
-  // swap the frame buffer index
-  fb_index = !fb_index;
-  // select the frame buffer
-  uint16_t *fb_ptr = (fb_index == 0) ? (uint16_t *)fb0 : (uint16_t *)fb1;
-
-  // wait until the video queue is empty
-  while (uxQueueMessagesWaiting(video_queue_) > 0) {
-    std::this_thread::sleep_for(100us);
-  }
-
-  // set the display_buffer to point to dst, so that the engine will use it.
-  display_buffer = fb_ptr;
-
-  for (int i = 0; i < SIZE_X * SIZE_Y; i++) {
-    display_buffer[i] = BACKGROUND_COLOR;
-    z_buffer[i] = DEFAULT_Z_BUFFER;
-  }
+  reserve_render_buffers();
 
   worldToCamera = player->Eye().GetWorldToCamera();
-
-  std::vector<Vertex> frameVertices;
-  std::vector<uint32_t> frameIndices;
-  std::vector<Object::DrawView> drawList;
+  frameVertices.clear();
+  frameIndices.clear();
+  drawList.clear();
+  for (auto &bucket : stripTriangles) {
+    bucket.clear();
+  }
 
   for (auto &it : objectlist) {
     // indexed pipeline append
@@ -615,9 +604,9 @@ void IRAM_ATTR render() {
 
   logger.debug("Rendering {} indexed draws ({} tris)", drawList.size(), frameIndices.size() / 3);
 
-  // Indexed pipeline rasterization
   if (!drawList.empty()) {
-    for (const auto &d : drawList) {
+    for (size_t drawIndex = 0; drawIndex < drawList.size(); ++drawIndex) {
+      const auto &d = drawList[drawIndex];
       const size_t end = d.baseIndex + d.indexCount;
       for (size_t i = d.baseIndex; i + 2 < end; i += 3) {
         const uint32_t i0 = d.baseVertex + frameIndices[i + 0];
@@ -626,93 +615,71 @@ void IRAM_ATTR render() {
         const Vertex &a = frameVertices[i0];
         const Vertex &b = frameVertices[i1];
         const Vertex &c = frameVertices[i2];
-        RasterizeTriangle(a, b, c, d.rType, d.texture, d.texwidth, d.texheight, d.r, d.g, d.b);
+        const float triMinX = std::min({a.x, b.x, c.x});
+        const float triMaxX = std::max({a.x, b.x, c.x});
+        const float triMinY = std::min({a.y, b.y, c.y});
+        const float triMaxY = std::max({a.y, b.y, c.y});
+        if (triMaxX < 0.0f || triMinX >= SIZE_X || triMaxY < 0.0f || triMinY >= SIZE_Y) {
+          continue;
+        }
+
+        const int startStrip =
+            std::max(0, static_cast<int>(std::floor(std::max(triMinY, 0.0f))) / num_rows_in_vram);
+        const int endStrip = std::min(
+            num_render_strips - 1,
+            static_cast<int>(std::floor(std::min(triMaxY, static_cast<float>(SIZE_Y - 1)))) /
+                num_rows_in_vram);
+        TriangleWorkItem item{i0, i1, i2, static_cast<uint32_t>(drawIndex)};
+        for (int strip = startStrip; strip <= endStrip; ++strip) {
+          stripTriangles[strip].push_back(item);
+        }
       }
     }
   }
 
-  // push the frame to the video task
-  push_frame(fb_ptr);
-}
-
-/////////////////////////////
-// Video Related Functions
-/////////////////////////////
-
-bool initialize_video() {
-  if (video_queue_ || video_task_) {
-    return false;
-  }
-
-  video_queue_ = xQueueCreate(1, sizeof(uint16_t *));
-  using namespace std::placeholders;
-  video_task_ = espp::Task::make_unique({
-      .callback = std::bind(video_task_callback, _1, _2, _3),
-      .task_config =
-          {.name = "video task", .stack_size_bytes = 4 * 1024, .priority = 20, .core_id = 1},
-  });
-  video_task_->start();
-  return true;
-}
-
-void clear_screen() {
-  static int buffer = 0;
-  xQueueSend(video_queue_, &buffer, portMAX_DELAY);
-}
-
-void IRAM_ATTR push_frame(const void *frame) { xQueueSend(video_queue_, &frame, portMAX_DELAY); }
-
-bool IRAM_ATTR video_task_callback(std::mutex &m, std::condition_variable &cv,
-                                   bool &task_notified) {
-  const void *_frame_ptr;
-  if (xQueueReceive(video_queue_, &_frame_ptr, portMAX_DELAY) != pdTRUE) {
-    return false;
-  }
-  static constexpr int num_lines_to_write = num_rows_in_vram;
-  using Pixel = hal::Pixel;
-
   static auto &hw = hal::get();
-
-  auto lcd_height = hw.lcd_height();
-  auto lcd_width = hw.lcd_width();
   int x_offset = 0;
   int y_offset = 0;
   DisplayDriver::get_offset(x_offset, y_offset);
+  const int lcd_width = hw.lcd_width();
 
-  static uint16_t vram_index = 0; // has to be static so that it persists between calls
+  for (int strip = 0; strip < num_render_strips; ++strip) {
+    const int stripY = strip * num_rows_in_vram;
+    const int num_lines = std::min(num_rows_in_vram, SIZE_Y - stripY);
+    uint8_t *strip_buffer = (strip & 1) == 0 ? vram0 : vram1;
+    display_buffer = reinterpret_cast<uint16_t *>(strip_buffer);
+    render_target_y_offset = stripY;
+    render_target_height = num_lines;
 
-  // special case: if _frame_ptr is null, then we simply fill the screen with 0
-  if (_frame_ptr == nullptr) {
-    for (int y = 0; y < lcd_height; y += num_lines_to_write) {
-      vram_index = !vram_index;
-      Pixel *_buf = (vram_index == 0) ? (Pixel *)vram0 : (Pixel *)vram1;
-      int num_lines = std::min<int>(num_lines_to_write, lcd_height - y);
-      // memset the buffer to 0
-      memset(_buf, 0, lcd_width * num_lines * sizeof(Pixel));
-      hw.write_lcd_lines(x_offset, y + y_offset, x_offset + lcd_width - 1,
-                         y + y_offset + num_lines - 1, (uint8_t *)&_buf[0], 0);
+    std::fill_n(display_buffer, SIZE_X * num_lines, BACKGROUND_COLOR);
+    std::fill_n(z_buffer, SIZE_X * num_lines, kDepthClearValue);
+
+    for (const auto &item : stripTriangles[strip]) {
+      const auto &d = drawList[item.drawIndex];
+      const Vertex &a = frameVertices[item.i0];
+      const Vertex &b = frameVertices[item.i1];
+      const Vertex &c = frameVertices[item.i2];
+      RasterizeTriangle(a, b, c, d.rType, d.texture, d.texwidth, d.texheight, d.r, d.g, d.b);
     }
 
-    // now return
-    return false;
+    hw.write_lcd_lines(x_offset, stripY + y_offset, x_offset + lcd_width - 1,
+                       stripY + y_offset + num_lines - 1, strip_buffer, 0);
   }
+}
 
-  for (int y = 0; y < lcd_height; y += num_lines_to_write) {
-    vram_index = !vram_index;
-    Pixel *_buf = (vram_index == 0) ? (Pixel *)vram0 : (Pixel *)vram1;
-    int num_lines = std::min<int>(num_lines_to_write, lcd_height - y);
-    const uint16_t *_frame = (const uint16_t *)_frame_ptr;
-    for (int i = 0; i < num_lines; i++) {
-      // write two pixels (32 bits) at a time because it's faster
-      for (int j = 0; j < lcd_width; j += 2) {
-        const uint32_t *src = (const uint32_t *)&_frame[(y + i) * lcd_width + j];
-        uint32_t *dst = (uint32_t *)&_buf[i * lcd_width + j];
-        dst[0] = src[0]; // copy two pixels (32 bits) at a time
-      }
-    }
+void clear_screen() {
+  static auto &hw = hal::get();
+  using Pixel = hal::Pixel;
+  const auto lcd_height = hw.lcd_height();
+  const auto lcd_width = hw.lcd_width();
+  int x_offset = 0;
+  int y_offset = 0;
+  DisplayDriver::get_offset(x_offset, y_offset);
+  for (int y = 0; y < lcd_height; y += num_rows_in_vram) {
+    const int num_lines = std::min<int>(num_rows_in_vram, lcd_height - y);
+    Pixel *_buf = reinterpret_cast<Pixel *>(((y / num_rows_in_vram) & 1) == 0 ? vram0 : vram1);
+    std::fill_n(reinterpret_cast<uint16_t *>(_buf), lcd_width * num_lines, BACKGROUND_COLOR);
     hw.write_lcd_lines(x_offset, y + y_offset, x_offset + lcd_width - 1,
-                       y + y_offset + num_lines - 1, (uint8_t *)&_buf[0], 0);
+                       y + y_offset + num_lines - 1, reinterpret_cast<uint8_t *>(_buf), 0);
   }
-
-  return false;
 }

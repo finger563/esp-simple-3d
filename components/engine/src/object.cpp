@@ -1,5 +1,17 @@
 #include "object.hpp"
 
+namespace {
+
+inline void TransformPointFast(const Matrix &m, float x, float y, float z, float w, float &outX,
+                               float &outY, float &outZ, float &outW) {
+  outX = x * m[0][0] + y * m[1][0] + z * m[2][0] + w * m[3][0];
+  outY = x * m[0][1] + y * m[1][1] + z * m[2][1] + w * m[3][1];
+  outZ = x * m[0][2] + y * m[1][2] + z * m[2][2] + w * m[3][2];
+  outW = x * m[0][3] + y * m[1][3] + z * m[2][3] + w * m[3][3];
+}
+
+} // namespace
+
 // Constructor
 Object::Object() {
   velocity = Vector3D(0, 0, 0);
@@ -318,25 +330,47 @@ bool Object::SetRenderType(RenderType rt) {
 void Object::AppendDrawItems(const Matrix &view, const Matrix &proj, const Matrix &viewport,
                              std::vector<Vertex> &outVertices, std::vector<uint32_t> &outIndices,
                              std::vector<DrawView> &outDraws) const {
-  // Transform-and-append unique vertices for each mesh; rebase indices
+  const Matrix modelView =
+      (meshTransform * Matrix::Translation(position.x, position.y, position.z)) * view;
+  const float viewportScaleX = viewport[0][0];
+  const float viewportScaleY = viewport[1][1];
+  const float viewportOffsetX = viewport[3][0];
+  const float viewportOffsetY = viewport[3][1];
+
   for (const auto &mesh : meshes) {
     const size_t baseVertex = outVertices.size();
     const size_t baseIndex = outIndices.size();
     outVertices.reserve(baseVertex + mesh.vertices.size());
     outIndices.reserve(baseIndex + mesh.indices.size());
-    // Transform vertices: mesh local -> meshTransform -> translate(position) -> view -> proj ->
-    // divide -> viewport
+
     for (const auto &vin : mesh.vertices) {
-      Vertex v = vin;
-      v.Transform(meshTransform);
-      v.Translate(Vector3D(position.x, position.y, position.z));
-      v.TransformToCamera(view);
-      v.TransformToPerspective(proj);
-      v.HomogeneousDivide();
-      v.Transform(viewport);
+      Vertex v;
+      float camX, camY, camZ, camW;
+      TransformPointFast(modelView, vin.x, vin.y, vin.z, vin.w, camX, camY, camZ, camW);
+
+      float clipX, clipY, clipZ, clipW;
+      TransformPointFast(proj, camX, camY, camZ, camW, clipX, clipY, clipZ, clipW);
+
+      const float invW = 1.0f / clipW;
+      v.x = clipX * invW * viewportScaleX + viewportOffsetX;
+      v.y = clipY * invW * viewportScaleY + viewportOffsetY;
+      v.z = clipZ * invW;
+      v.w = 1.0f;
+      v.ex = camX * invW;
+      v.ey = camY * invW;
+      v.ez = camZ * invW;
+      v.u = vin.u * invW;
+      v.v = vin.v * invW;
+      v.r = vin.r;
+      v.g = vin.g;
+      v.b = vin.b;
+      v.nx = vin.nx;
+      v.ny = vin.ny;
+      v.nz = vin.nz;
+      v.hw = invW;
       outVertices.push_back(v);
     }
-    // Copy local indices (no rebase here; we use baseVertex in the draw view)
+
     outIndices.insert(outIndices.end(), mesh.indices.begin(), mesh.indices.end());
     DrawView d;
     d.baseVertex = baseVertex;
